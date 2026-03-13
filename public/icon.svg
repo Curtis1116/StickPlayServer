@@ -1,0 +1,52 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <!-- Define gradients and shadows -->
+  <defs>
+    <!-- Background Gradient (matching the soft blue in the image) -->
+    <linearGradient id="bgGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#73C6FF" />
+      <stop offset="50%" stop-color="#5BBAFB" />
+      <stop offset="100%" stop-color="#4CAFF4" />
+    </linearGradient>
+
+    <!-- Basic drop shadow for elements -->
+    <filter id="dropShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="12" stdDeviation="15" flood-color="#2D7BCF" flood-opacity="0.3"/>
+    </filter>
+
+    <!-- Outer shadow for the icon itself to simulate 3D -->
+    <filter id="iconShadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="20" stdDeviation="25" flood-color="#000000" flood-opacity="0.15"/>
+    </filter>
+  </defs>
+
+  <!-- The Squircle Background -->
+  <!-- Image is 1024x1024, rect is 940x940 to fit nicely in Tauri's generator -->
+  <rect x="42" y="42" width="940" height="940" rx="220" 
+        fill="url(#bgGradient)" />
+
+  <!-- Inner highlight to simulate 3D edge -->
+  <rect x="42" y="42" width="940" height="940" rx="220" 
+        fill="none" stroke="#90DCFF" stroke-width="8" opacity="0.8" />
+  
+  <!-- Bottom inner shadow to simulate 3D edge -->
+  <rect x="42" y="46" width="940" height="940" rx="220" 
+        fill="none" stroke="#2D9FF0" stroke-width="8" opacity="0.5" />
+
+  <!-- Play Button -->
+  <!-- A white triangle with rounded corners -->
+  <path d="M 400 240 L 700 400 L 400 560 Z" 
+        fill="#FFFFFF" 
+        stroke="#FFFFFF" stroke-width="50" stroke-linejoin="round"
+        filter="url(#dropShadow)" />
+
+  <!-- Three Steps -->
+  <!-- Step 1 (Top, narrowest) -->
+  <rect x="340" y="660" width="344" height="64" rx="32" fill="#FFFFFF" filter="url(#dropShadow)" />
+  
+  <!-- Step 2 (Middle) -->
+  <rect x="270" y="750" width="484" height="64" rx="32" fill="#FFFFFF" filter="url(#dropShadow)" />
+  
+  <!-- Step 3 (Bottom, widest) -->
+  <rect x="200" y="840" width="624" height="64" rx="32" fill="#FFFFFF" filter="url(#dropShadow)" />
+
+</svg>

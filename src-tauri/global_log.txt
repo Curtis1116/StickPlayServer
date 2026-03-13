@@ -1,0 +1,27 @@
+Global start_x=0, ratio=0.002904971249936702
+Global start_x=21, ratio=0.0029021928074774877
+Global start_x=42, ratio=0.0028952590160873895
+Global start_x=63, ratio=0.002879593127992563
+Global start_x=84, ratio=0.0026957856571740023
+Global start_x=105, ratio=0.002619786993517749
+Global start_x=126, ratio=0.0026163264113519256
+Global start_x=147, ratio=0.002588786678254001
+Global start_x=168, ratio=0.0025063821395498887
+Global start_x=189, ratio=0.002392929641082523
+Global start_x=210, ratio=0.0022704864568458775
+Global start_x=231, ratio=0.002129849673757856
+Global start_x=252, ratio=0.002122164698693667
+Global start_x=273, ratio=0.0021672152033645987
+Global start_x=294, ratio=0.0023213780409771915
+Global start_x=315, ratio=0.0024255930211273453
+Global start_x=336, ratio=0.0023841580906348173
+Global start_x=357, ratio=0.002362816843099768
+Global start_x=378, ratio=0.0023719915967665996
+Global start_x=399, ratio=0.00244727864935197
+Global start_x=420, ratio=0.002505440832301087
+Global start_x=441, ratio=0.0025180672877795985
+Global start_x=462, ratio=0.0024887132349759654
+Global start_x=483, ratio=0.002592571337062593
+Global start_x=504, ratio=0.002677856971518243
+Global start_x=525, ratio=0.0027054390087123616
+Best start_x globally based on grid ratio: 252
