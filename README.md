@@ -1,64 +1,74 @@
-# StickPlay 影片管理資料庫
+# StickPlay Server 影片管理資料庫 (Docker 版本)
 
-StickPlay 是一款跨平台的現代化本地影片管理應用程式。採用書架式的視覺介面，結合智慧海報裁切與強大的中繼資料（Metadata）解析能力，為您提供頂級的影片收藏與瀏覽體驗。
+StickPlay Server 是一款基於 Docker 的現代化影片管理解決方案。它將原有的 StickPlay 桌面端功能轉化為高效能的 Web 伺服器架構，讓您可以在 NAS (如 Synology) 或家用伺服器上部署，並透過任何裝置的瀏覽器進行存取。
 
 ![StickPlay Icon](./public/icon.svg)
 
 ## ✨ 核心特色
 
-- **現代化介面**：採用 macOS 原生美學的深色毛玻璃 (Glassmorphism) 主題，流暢的動畫與響應式格狀佈局。
-- **增強型影片編輯對話框**：全新設計的互動式編輯介面，支援評分、分級 (Level)、演員、日期等完整編輯，並優化欄位佈局以避免出現捲軸。
-- **智慧海報裁切**：當原始圖片比例不符時，系統會自動偵測人像並裁切出完美的 2:3 比例海報。
-- **彈性中繼資料 (NFO)**：
-  - 支援雙重 NFO 檔案架構。讀取時優先載入 `.nfos`，若無則讀取原始唯讀的 `.nfo` 檔。
-  - 對評分與 ID 修改會獨立寫回專屬的 `.nfos`，完美保護您的原始中繼資料不被覆寫。
-- **智慧解析與 ID 擷取**：
-  - 支援各種路徑前綴與包含數字的品牌代碼（如 `300MIUM`, `259LUXU`）。
-  - 精確識別資料夾括號內的演員與分級 (Level) 資訊。
-- **單一影片更新**：卡片提供獨立「重新整理」按鈕，編輯面板更整合了「開啟資料夾」捷徑，管理更直覺。
+-   **Web 化存取**：不再侷限於單機，透過瀏覽器即可在手機、平板或電腦上管理您的影片庫。
+-   **現代化介面**：延續 macOS 原生美學的深色毛玻璃 (Glassmorphism) 主題，支援流暢的動畫與響應式格狀佈局。
+-   **智慧監控與自動更新**：後端整合檔案系統監控 (Notify)，當影片資料夾有變動時，系統會自動在背景進行重整。
+-   **增強型 NFO 管理**：
+    -   **優先權**：掃描時優先讀取 `.nfos` 檔案，確保手動修正的資料（如評分、演員、分級）被優先採用。
+    -   **分離儲存**：所有的修改都會寫入專屬的 `.nfos` 檔案，完美保護原始 `.nfo` 資料夾的完整性。
+-   **智慧海報選擇**：優先採用檔名為 `stick_poster.jpg` 的圖片作為封面，並具備人像偵測自動裁切功能（2:3 比例）。
+-   **多裝置設定同步**：媒體庫設定存儲於伺服器端，無論從哪個瀏覽器登入，都能享有一致的媒體庫路徑與設定。
+-   **Docker 優化**：
+    -   為 Synology 與 Linux 伺服器優化，支援跨平台目錄掛載。
+    -   檔案選擇器限制於 `/media` 路徑下，防止誤選系統目錄。
 
 ## 🛠️ 技術棧
 
-- **前端 (Frontend)**：
-  - [React 18](https://reactjs.org/) + [TypeScript](https://www.typescriptlang.org/)
-  - [Vite](https://vitejs.dev/)
-  - [Tailwind CSS v3](https://tailwindcss.com/)
-  - [Lucide React](https://lucide.dev/) (向量圖示)
-- **後端 (Backend)**：
-  - [Tauri v2](https://v2.tauri.app/)
-  - [Rust](https://www.rust-lang.org/)
-  - **Rusqlite** (SQLite 儲存與快取)
-  - **Quick-XML** (NFO 檔案微秒級解析)
-  - **Image** (影像處理與生成)
+-   **前端 (Frontend)**：React 19 + TypeScript / Vite / Tailwind CSS / Lucide React
+-   **後端 (Backend)**：Rust (Axum Web Framework)
+-   **資料庫**：SQLite (Rusqlite) + WAL 模式提升並行效能
+-   **檔案監控**：Notify (Rust)
+-   **影像處理**：Image (海報生成與裁切)
 
-## 📦 安裝與啟動
+## 📦 部署指南 (Docker)
 
-### 環境要求
-- Node.js (建議 v18 以上)
-- Rust (可透過 [rustup](https://rustup.rs/) 安裝)
-- Tauri 的作業系統相依套件 (請參閱 [Tauri 官方指南](https://v2.tauri.app/start/prerequisites/))
+### 使用 Docker Compose (推薦)
 
-### 開發模式
-```bash
-# 1. 安裝前端依賴
-npm install
+您可以直接使用 `docker-compose.yml` 快速啟動：
 
-# 2. 啟動 Tauri 開發環境
-npm run tauri dev
+```yaml
+version: '3.8'
+services:
+  stickplay:
+    image: stickplay:latest
+    container_name: stickplay
+    restart: always
+    ports:
+      - "8099:8099"
+    volumes:
+      - ./config:/config       # 儲存資料庫與設定檔
+      - /path/to/your/video:/media # 您的影片資料夾
+    environment:
+      - TZ=Asia/Taipei
+      - STICKPLAY_CONFIG_DIR=/config
+      - STICKPLAY_MEDIA_DIR=/media
 ```
 
-### 打包應用程式
+### Synology NAS 安裝建議
+
+1.  將專案資料夾上傳至 `File Station`。
+2.  開啟 **Container Manager**，新增專案。
+3.  匯入 `docker-compose.yml` 並視需求修改 `volumes` 路徑。
+4.  啟動後即可透過 `http://NAS_IP:8099` 訪問。
+
+## 🛠️ 開發說明
+
+如果您需要自行編譯：
+
 ```bash
-# 生成您的作業系統的安裝檔 (如 .dmg, .msi, .AppImage)
-npm run tauri build
+# 1. 確保已安裝 Docker
+# 2. 在根目錄建置 Image
+docker build -t stickplay:latest .
+
+# 3. 匯出 Image (供 NAS 使用)
+docker save stickplay:latest -o stickplay_image.tar
 ```
-
-## 📖 使用指南
-
-1. **新增路徑**：初次使用請點擊畫面右上角的「設定 (⚙️)」圖示，新增包含影片的根資料夾。
-2. **掃描索引**：回到主畫面，點擊工具列的「重新整理 (🔄)」，系統將自動掃描並建立影片庫。
-3. **播放觀看**：雙擊任一影片卡片，或點擊懸停選項中的「播放影片」，即會使用作業系統預設的播放器開啟該影片。
-4. **精確控制**：透過頂部工具列可自由縮放書架尺寸、過濾廠牌/等級、或是透過右上角下拉選單調整排序方式。
 
 ## 📄 授權條款
 
