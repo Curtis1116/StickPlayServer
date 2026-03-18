@@ -4,22 +4,22 @@ import VideoCard from "./VideoCard";
 
 interface VideoGridProps {
     videos: VideoEntry[];
-    gridSize: number;
     onFavoriteToggled: (id: string, newState: boolean) => void;
-    onRatingUpdated: (id: string, newRating: number, nfosPath: string) => void;
     onVideoUpdated: (updated: VideoEntry) => void;
     onVideoRemoved: (id: string) => void;
     onToast: (msg: string) => void;
+    disableHover: boolean;
+    onModalStateChange: (open: boolean) => void;
 }
 
 export default function VideoGrid({
     videos,
-    gridSize,
     onFavoriteToggled,
-    onRatingUpdated,
     onVideoUpdated,
     onVideoRemoved,
     onToast,
+    disableHover,
+    onModalStateChange,
 }: VideoGridProps) {
     if (videos.length === 0) {
         return (
@@ -35,9 +35,9 @@ export default function VideoGrid({
 
     return (
         <div
-            className="grid gap-x-8 gap-y-12 transition-all duration-300"
+            className="grid gap-x-3 gap-y-6 sm:gap-x-8 sm:gap-y-12 transition-all duration-300"
             style={{
-                gridTemplateColumns: `repeat(auto-fill, minmax(${gridSize}px, 1fr))`,
+                gridTemplateColumns: `repeat(auto-fill, minmax(105px, 1fr))`,
             }}
         >
             {videos.map((video) => (
@@ -45,10 +45,11 @@ export default function VideoGrid({
                     key={video.id}
                     video={video}
                     onFavoriteToggled={onFavoriteToggled}
-                    onRatingUpdated={onRatingUpdated}
                     onVideoUpdated={onVideoUpdated}
                     onVideoRemoved={onVideoRemoved}
                     onToast={onToast}
+                    disableHover={disableHover}
+                    onModalStateChange={onModalStateChange}
                 />
             ))}
         </div>

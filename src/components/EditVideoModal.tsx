@@ -1,13 +1,13 @@
-import React, { useState, useEffect } from "react";
+import { useState } from "react";
 import { createPortal } from "react-dom";
-import { X, Save, FolderOpen, Image as ImageIcon, Trash2 } from "lucide-react";
+import { X, Save, Star, StarOff, Trash2, Plus, Minus } from "lucide-react";
 import { VideoEntry } from "../types";
-import { updateVideoInfo, getFanartPath, readImage, openFolder } from "../api";
+import { updateVideoInfo } from "../api";
 
 interface EditVideoModalProps {
     video: VideoEntry;
     onClose: () => void;
-    onSaved: (updatedVideo: VideoEntry, newNfosPath: string) => void;
+    onSaved: (updatedVideo: VideoEntry) => void;
     onToast: (msg: string) => void;
 }
 
@@ -18,6 +18,7 @@ export default function EditVideoModal({
     onToast,
 }: EditVideoModalProps) {
     const [rating, setRating] = useState(video.rating);
+    const [criticRating, setCriticRating] = useState(video.criticrating || Math.round(video.rating * 10));
     const [id, setId] = useState(video.id);
     const [level, setLevel] = useState(video.level);
     const [actorsStr, setActorsStr] = useState(video.actors.join(", "));
@@ -29,40 +30,23 @@ export default function EditVideoModal({
         video.level.toLowerCase().endsWith("x")
     );
 
-    const [fanartDataUrl, setFanartDataUrl] = useState<string | null>(null);
-    const [loadingImage, setLoadingImage] = useState(true);
     const [saving, setSaving] = useState(false);
 
-    useEffect(() => {
-        let isMounted = true;
-        const fetchImage = async () => {
-            try {
-                const path = await getFanartPath(video.folder_path, video.video_path);
-                const dataUrl = await readImage(path);
-                if (isMounted) {
-                    setFanartDataUrl(dataUrl);
-                }
-            } catch (err) {
-                console.error("fetchImage Error:", err, "folder:", video.folder_path);
-            } finally {
-                if (isMounted) setLoadingImage(false);
-            }
-        };
-        fetchImage();
-        return () => {
-            isMounted = false;
-        };
-    }, [video.folder_path, video.video_path]);
+    // 評分同步邏輯
+
+    const updateCriticRating = (newCriticRating: number) => {
+        setCriticRating(newCriticRating);
+        setRating(newCriticRating / 10);
+    };
 
     const handleSave = async () => {
         setSaving(true);
         try {
             const actorsList = actorsStr
                 .split(",")
-                .map((s) => s.trim())
+                .map((s: string) => s.trim())
                 .filter(Boolean);
 
-            // Check if level should be updated (add/remove X suffix)
             let newLevel = level;
             if (isUncensored && !newLevel.toLowerCase().endsWith("x")) {
                 newLevel += "X";
@@ -70,7 +54,7 @@ export default function EditVideoModal({
                 newLevel = newLevel.slice(0, -1);
             }
 
-            const newNfosPath = await updateVideoInfo(
+            const nfoPath = await updateVideoInfo(
                 video.id,
                 id,
                 video.title,
@@ -84,8 +68,8 @@ export default function EditVideoModal({
                 video.video_path,
                 video.folder_path,
                 video.poster_path || null,
-                video.nfo_path || null,
-                video.nfos_path || null
+                video.nfo_path,
+                criticRating
             );
 
             const newGenres = video.genres.filter(g => g !== "無碼");
@@ -95,16 +79,18 @@ export default function EditVideoModal({
                 ...video,
                 id,
                 rating,
+                criticrating: criticRating,
                 actors: actorsList,
                 release_date: releaseDate,
                 date_added: dateAdded,
                 is_favorite: isFavorite,
                 genres: newGenres,
                 level: newLevel,
-                nfos_path: newNfosPath,
+                nfo_path: nfoPath,
+                nfos_path: null, // 確保拋棄舊的 nfos
             };
 
-            onSaved(updatedVideo, newNfosPath);
+            onSaved(updatedVideo);
             onToast(`影片資料已更新`);
         } catch (e) {
             onToast(`更新失敗: ${e}`);
@@ -113,249 +99,114 @@ export default function EditVideoModal({
         }
     };
 
-    const handleOpenFolder = async (e: React.MouseEvent) => {
-        e.preventDefault();
-        try {
-            await openFolder(video.folder_path);
-        } catch (err) {
-            onToast(`開啟資料夾失敗: ${err}`);
-        }
-    };
-
     return createPortal(
-        <div
-            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
-            onPointerDown={(e) => {
-                if (e.target === e.currentTarget) onClose();
-            }}
-        >
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
             <div className="glass-panel w-full max-w-2xl bg-zinc-900/90 border border-zinc-700/50 rounded-2xl shadow-2xl overflow-hidden flex flex-col h-[85vh]">
-                {/* Header */}
                 <div className="flex items-center justify-between p-4 border-b border-white/10 shrink-0">
                     <h2 className="text-lg font-bold text-white">編輯影片資訊</h2>
-                    <button
-                        onClick={onClose}
-                        className="p-1 rounded-lg text-zinc-400 hover:text-white hover:bg-white/10 transition-colors"
-                    >
+                    <button onClick={onClose} className="p-1 rounded-lg text-zinc-400 hover:text-white hover:bg-white/10 transition-colors">
                         <X size={20} />
                     </button>
                 </div>
 
-                {/* Content */}
-                <div className="p-6 overflow-y-auto flex-grow custom-scrollbar">
+                <div className="p-4 sm:p-6 overflow-y-auto flex-grow custom-scrollbar">
+                    <div className="flex flex-col md:flex-row gap-4 sm:gap-6 mb-6">
+                        {/* Simplified Critic Rating Section */}
+                        <div className="flex-1">
+                            <div className="bg-black/20 p-4 rounded-xl border border-white/5 flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                    <div className="flex items-center gap-1 bg-zinc-800 border border-white/10 rounded-lg p-1">
+                                        <button 
+                                            onClick={() => updateCriticRating(Math.max(0, criticRating - 1))}
+                                            className="w-8 h-8 flex items-center justify-center hover:bg-white/10 rounded text-zinc-400 transition-colors"
+                                        >
+                                            <Minus size={14} />
+                                        </button>
+                                        <input 
+                                            type="number" 
+                                            value={criticRating} 
+                                            onChange={(e) => updateCriticRating(parseInt(e.target.value) || 0)}
+                                            className="w-16 bg-transparent text-xl font-bold text-amber-400 text-center focus:outline-none appearance-none"
+                                        />
+                                        <button 
+                                            onClick={() => updateCriticRating(Math.min(100, criticRating + 1))}
+                                            className="w-8 h-8 flex items-center justify-center hover:bg-white/10 rounded text-zinc-400 transition-colors"
+                                        >
+                                            <Plus size={14} />
+                                        </button>
+                                    </div>
+                                    <div className="flex gap-1">
+                                        {[-5, +5].map(v => (
+                                            <button
+                                                key={v}
+                                                onClick={() => updateCriticRating(Math.max(0, Math.min(100, criticRating + v)))}
+                                                className="px-2 py-1 bg-zinc-800/50 hover:bg-zinc-700 text-[10px] font-bold text-zinc-500 rounded transition-colors"
+                                            >
+                                                {v > 0 ? `+${v}` : v}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
 
-                    <div className="flex flex-col md:flex-row gap-6 mb-4">
-                        {/* Rating Section (Left Size shrunk) */}
-                        <div className="flex-1 flex flex-col items-center relative bg-black/20 p-4 rounded-xl border border-white/5 justify-center">
-                            {rating > 0 && (
                                 <button
-                                    onClick={() => setRating(0)}
-                                    className="absolute top-2 right-2 p-2 text-zinc-500 hover:text-rose-400 bg-zinc-800/80 hover:bg-zinc-700 rounded-lg transition-colors border border-white/5"
-                                    title="刪除評分"
+                                    onClick={() => updateCriticRating(0)}
+                                    className="p-2.5 text-zinc-500 hover:text-red-400 hover:bg-red-400/10 rounded-xl transition-all"
+                                    title="清除分數"
                                 >
-                                    <Trash2 size={16} />
+                                    <Trash2 size={20} />
                                 </button>
-                            )}
-                            <div className="text-3xl font-black text-amber-400 mb-1">
-                                {rating > 0 ? rating.toFixed(1) : "—"}
-                            </div>
-                            <input
-                                type="range"
-                                min="0"
-                                max="100"
-                                step="1"
-                                value={rating * 10}
-                                onChange={(e) => setRating(Number(e.target.value) / 10)}
-                                className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer mb-2"
-                            />
-                            <div className="flex gap-1 flex-wrap justify-center">
-                                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((v) => (
-                                    <button
-                                        key={v}
-                                        onClick={() => setRating(v)}
-                                        className={`w-7 h-7 rounded-md text-xs font-bold transition-all ${Math.floor(rating) === v
-                                            ? "bg-indigo-500 text-white shadow-lg shadow-indigo-500/30"
-                                            : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
-                                            }`}
-                                    >
-                                        {v}
-                                    </button>
-                                ))}
                             </div>
                         </div>
 
-                        {/* Checkboxes Section (Right Side of Rating) */}
-                        <div className="w-full md:w-32 shrink-0 flex flex-col justify-center gap-4 bg-black/20 p-4 rounded-xl border border-white/5">
-                            <label className="flex items-center gap-3 cursor-pointer group">
-                                <div className="relative flex items-center justify-center w-6 h-6 rounded border border-white/20 bg-zinc-800 group-hover:bg-zinc-700 transition-colors">
-                                    <input
-                                        type="checkbox"
-                                        className="sr-only"
-                                        checked={isFavorite}
-                                        onChange={(e) => setIsFavorite(e.target.checked)}
-                                    />
-                                    {isFavorite && (
-                                        <div className="w-3.5 h-3.5 bg-indigo-500 rounded-sm" />
-                                    )}
-                                </div>
-                                <span className="text-sm font-bold text-zinc-300 group-hover:text-white transition-colors">
-                                    我的最愛
-                                </span>
-                            </label>
-
-                            <label className="flex items-center gap-3 cursor-pointer group">
-                                <div className="relative flex items-center justify-center w-6 h-6 rounded border border-white/20 bg-zinc-800 group-hover:bg-zinc-700 transition-colors">
-                                    <input
-                                        type="checkbox"
-                                        className="sr-only"
-                                        checked={isUncensored}
-                                        onChange={(e) => setIsUncensored(e.target.checked)}
-                                    />
-                                    {isUncensored && (
-                                        <div className="w-3.5 h-3.5 bg-rose-500 rounded-sm" />
-                                    )}
-                                </div>
-                                <span className="text-sm font-bold text-zinc-300 group-hover:text-white transition-colors">
-                                    無碼
-                                </span>
-                            </label>
+                        {/* Status Section */}
+                        <div className="w-full md:w-32 shrink-0 flex flex-row md:flex-col gap-2 sm:gap-3">
+                            <button
+                                onClick={() => setIsFavorite(!isFavorite)}
+                                className={`flex items-center justify-center gap-2 flex-1 md:w-full py-2.5 sm:py-3 rounded-xl border transition-all ${isFavorite ? "bg-indigo-500/20 border-indigo-500/50 text-indigo-400" : "bg-zinc-800/50 border-white/5 text-zinc-400"}`}
+                            >
+                                {isFavorite ? <Star size={16} fill="currentColor" /> : <StarOff size={16} />}
+                                <span className="text-[10px] sm:text-xs font-bold">最愛</span>
+                            </button>
+                            <button
+                                onClick={() => setIsUncensored(!isUncensored)}
+                                className={`flex items-center justify-center gap-2 flex-1 md:w-full py-2.5 sm:py-3 rounded-xl border transition-all ${isUncensored ? "bg-rose-500/20 border-rose-500/50 text-rose-400" : "bg-zinc-800/50 border-white/5 text-zinc-400"}`}
+                            >
+                                <span className="text-[10px] sm:text-xs font-bold">無碼模式</span>
+                            </button>
                         </div>
                     </div>
 
-                    <div className="flex flex-col gap-3">
-                        {/* Form Fields - Now Full Width */}
-                        <div className="space-y-3">
-                            {/* Folder Path (Readonly) */}
-                            <div className="flex flex-row items-center gap-3">
-                                <label className="w-20 shrink-0 text-right text-xs font-semibold text-zinc-400">
-                                    資料夾路徑
-                                </label>
-                                <div className="flex flex-1 gap-2">
-                                    <button
-                                        onClick={handleOpenFolder}
-                                        className="flex shrink-0 items-center justify-center w-10 h-10 bg-zinc-800 hover:bg-zinc-700 rounded-xl transition-colors text-zinc-300 border border-white/5"
-                                        title="開啟資料夾"
-                                    >
-                                        <FolderOpen size={18} />
-                                    </button>
-                                    <input
-                                        type="text"
-                                        value={video.folder_path}
-                                        readOnly
-                                        className="w-full bg-black/40 border border-white/5 rounded-xl px-3 py-2 text-sm text-zinc-500 focus:outline-none"
-                                    />
-                                </div>
-                            </div>
-
-                            {/* ID and Level */}
-                            <div className="flex flex-row gap-4">
-                                <div className="flex flex-row items-center gap-3 basis-2/3">
-                                    <label className="w-20 shrink-0 text-right text-xs font-semibold text-zinc-400">
-                                        影片 ID
-                                    </label>
-                                    <input
-                                        type="text"
-                                        value={id}
-                                        onChange={(e) => setId(e.target.value)}
-                                        className="w-full flex-1 bg-zinc-800/50 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors"
-                                    />
-                                </div>
-                                <div className="flex flex-row items-center gap-3 basis-1/3">
-                                    <label className="shrink-0 text-right text-xs font-semibold text-zinc-400">
-                                        分級
-                                    </label>
-                                    <input
-                                        type="text"
-                                        value={level}
-                                        onChange={(e) => setLevel(e.target.value)}
-                                        className="w-full flex-1 bg-zinc-800/50 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors"
-                                    />
-                                </div>
-                            </div>
-
-                            {/* Actors */}
-                            <div className="flex flex-row items-center gap-3">
-                                <label className="w-20 shrink-0 text-right text-xs font-semibold text-zinc-400">
-                                    演員
-                                </label>
-                                <input
-                                    type="text"
-                                    value={actorsStr}
-                                    onChange={(e) => setActorsStr(e.target.value)}
-                                    placeholder="例如: 演員A, 演員B"
-                                    className="w-full flex-1 bg-zinc-800/50 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors"
-                                />
-                            </div>
-
-                            {/* Dates */}
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="flex flex-row items-center gap-3">
-                                    <label className="w-20 shrink-0 text-right text-xs font-semibold text-zinc-400">
-                                        發行日期
-                                    </label>
-                                    <input
-                                        type="text"
-                                        value={releaseDate}
-                                        onChange={(e) => setReleaseDate(e.target.value)}
-                                        placeholder="YYYY-MM-DD"
-                                        className="w-full flex-1 bg-zinc-800/50 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors"
-                                    />
-                                </div>
-                                <div className="flex flex-row items-center gap-3">
-                                    <label className="w-20 shrink-0 text-right text-xs font-semibold text-zinc-400">
-                                        加入時間
-                                    </label>
-                                    <input
-                                        type="text"
-                                        value={dateAdded}
-                                        onChange={(e) => setDateAdded(e.target.value)}
-                                        placeholder="YYYY-MM-DD HH:MM:SS"
-                                        className="w-full flex-1 bg-zinc-800/50 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors"
-                                    />
-                                </div>
-                            </div>
+                    <div className="space-y-3 sm:space-y-4">
+                        <div className="flex flex-row items-center gap-2 sm:gap-3">
+                            <label className="w-16 sm:w-20 shrink-0 text-right text-[9px] sm:text-[10px] font-bold text-zinc-500 uppercase">影片 ID</label>
+                            <input type="text" value={id} onChange={(e) => setId(e.target.value)} className="flex-1 bg-zinc-800/50 border border-white/10 rounded-xl px-3 sm:px-4 py-2 sm:py-2.5 text-xs sm:text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors" />
+                            <label className="shrink-0 text-[9px] sm:text-[10px] font-bold text-zinc-500 uppercase">分級</label>
+                            <input type="text" value={level} onChange={(e) => setLevel(e.target.value)} className="w-16 sm:w-20 bg-zinc-800/50 border border-white/10 rounded-xl px-2 sm:px-4 py-2 sm:py-2.5 text-xs sm:text-sm text-white focus:outline-none focus:border-indigo-500 text-center" />
                         </div>
-                    </div>
 
-                    {/* Image Preview - Moved below form fields */}
-                    <div className="w-full flex flex-col mt-2 items-center">
-                        <label className="block text-xs font-medium text-zinc-400 mb-1 w-full text-center">
-                            影片縮圖
-                        </label>
-                        <div className="w-full max-w-xs md:max-w-sm aspect-video bg-black/40 rounded-xl border border-white/5 overflow-hidden flex items-center justify-center relative">
-                            {loadingImage ? (
-                                <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
-                            ) : fanartDataUrl ? (
-                                <img
-                                    src={fanartDataUrl}
-                                    alt="Thumbnail Preview"
-                                    className="w-full h-full object-cover"
-                                />
-                            ) : (
-                                <div className="flex flex-col items-center text-zinc-600">
-                                    <ImageIcon size={32} className="mb-2 opacity-50" />
-                                    <span className="text-xs font-medium">無專屬縮圖</span>
-                                </div>
-                            )}
+                        <div className="flex flex-row items-center gap-2 sm:gap-3">
+                            <label className="w-16 sm:w-20 shrink-0 text-right text-[9px] sm:text-[10px] font-bold text-zinc-500 uppercase">演員清單</label>
+                            <input type="text" value={actorsStr} onChange={(e) => setActorsStr(e.target.value)} placeholder="以逗號分隔" className="flex-1 bg-zinc-800/50 border border-white/10 rounded-xl px-3 sm:px-4 py-2 sm:py-2.5 text-xs sm:text-sm text-white focus:outline-none focus:border-indigo-500" />
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+                            <div className="flex flex-row items-center gap-2 sm:gap-3">
+                                <label className="w-16 sm:w-20 shrink-0 text-right text-[9px] sm:text-[10px] font-bold text-zinc-500 uppercase">發行日期</label>
+                                <input type="text" value={releaseDate} onChange={(e) => setReleaseDate(e.target.value)} className="flex-1 bg-zinc-800/50 border border-white/10 rounded-xl px-3 sm:px-4 py-2 sm:py-2.5 text-xs sm:text-sm text-white focus:outline-none" />
+                            </div>
+                            <div className="flex flex-row items-center gap-2 sm:gap-3">
+                                <label className="w-16 sm:w-20 shrink-0 text-right text-[9px] sm:text-[10px] font-bold text-zinc-500 uppercase">掃描時間</label>
+                                <input type="text" value={dateAdded} onChange={(e) => setDateAdded(e.target.value)} className="flex-1 bg-zinc-800/50 border border-white/10 rounded-xl px-3 sm:px-4 py-2 sm:py-2.5 text-xs sm:text-sm text-white focus:outline-none" />
+                            </div>
                         </div>
                     </div>
                 </div>
 
-                {/* Footer */}
-                <div className="p-4 border-t border-white/10 shrink-0 flex justify-end gap-3 bg-black/20">
-                    <button
-                        onClick={onClose}
-                        className="px-5 py-2 rounded-xl text-sm font-bold text-zinc-400 hover:text-white hover:bg-white/10 transition-colors"
-                    >
-                        取消
-                    </button>
-                    <button
-                        onClick={handleSave}
-                        disabled={saving}
-                        className="px-6 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl text-sm font-bold shadow-lg shadow-indigo-500/20 transition-all disabled:opacity-50 flex items-center gap-2"
-                    >
-                        <Save size={16} />
-                        {saving ? "儲存中..." : "儲存設定"}
+                <div className="p-4 border-t border-white/10 shrink-0 flex justify-end gap-3 bg-zinc-950/50">
+                    <button onClick={onClose} className="px-6 py-2 rounded-xl text-sm font-bold text-zinc-400 hover:text-white transition-colors">取消</button>
+                    <button onClick={handleSave} disabled={saving} className="px-8 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-bold shadow-lg shadow-indigo-600/20 transition-all disabled:opacity-50 flex items-center gap-2">
+                        <Save size={18} />
+                        {saving ? "處理中..." : "儲存變更"}
                     </button>
                 </div>
             </div>

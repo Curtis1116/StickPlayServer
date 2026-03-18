@@ -12,7 +12,7 @@ use tower::ServiceExt;
 
 use crate::database::Database;
 use crate::models::{VideoEntry, VideoFilter, Library};
-use crate::parser::{update_nfos, update_nfos_full};
+use crate::parser::{update_nfo, update_nfo_full};
 use crate::scanner::{scan_library_paths, scan_single_folder};
 use crate::AppState;
 use notify::{Watcher, RecursiveMode};
@@ -88,7 +88,7 @@ pub async fn rescan_single_video(
         return Err(map_err("資料夾不存在，已從資料庫移除"));
     }
 
-    if let Err(e) = scan_single_folder(&state.db, dir, true) {
+    if let Err(e) = scan_single_folder(&state.db, dir, false) {
         if e == "資料夾內無影片檔" {
             let conn = state.db.conn.lock().unwrap();
             let _ = conn.execute(
@@ -209,6 +209,7 @@ pub struct UpdateVideoInfoPayload {
     pub title: String,
     pub level: String,
     pub rating: f64,
+    pub criticrating: i32,
     pub actors: Vec<String>,
     pub release_date: String,
     pub date_added: String,
@@ -218,7 +219,7 @@ pub struct UpdateVideoInfoPayload {
     pub folder_path: String,
     pub poster_path: Option<String>,
     pub nfo_path: Option<String>,
-    pub nfos_path: Option<String>,
+    pub _nfos_path: Option<String>,
 }
 
 pub async fn update_video_info(
@@ -241,30 +242,40 @@ pub async fn update_video_info(
         );
     }
 
-    let target_nfos = if let Some(ref existing) = payload.nfos_path {
-        existing.clone()
-    } else if let Some(ref nfo) = payload.nfo_path {
-        let nfo_p = Path::new(nfo);
-        nfo_p.with_extension("nfos").to_string_lossy().to_string()
+    let target_nfo = if let Some(ref nfo) = payload.nfo_path {
+        nfo.clone()
     } else {
         let folder_p = Path::new(&payload.folder_path);
-        folder_p
-            .join(format!("{}.nfos", payload.video_id))
-            .to_string_lossy()
-            .to_string()
+        // 優先尋找資料夾內已存在的任何 .nfo 檔
+        let mut found_nfo = None;
+        if let Ok(entries) = std::fs::read_dir(folder_p) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() && path.extension().map_or(false, |e| e.to_string_lossy().to_lowercase() == "nfo") {
+                    found_nfo = Some(path.to_string_lossy().to_string());
+                    break;
+                }
+            }
+        }
+        
+        found_nfo.unwrap_or_else(|| {
+            folder_p
+                .join(format!("{}.nfo", payload.video_id))
+                .to_string_lossy()
+                .to_string()
+        })
     };
 
-    let nfos_p = Path::new(&target_nfos);
-    update_nfos_full(
-        nfos_p,
+    let nfo_p = Path::new(&target_nfo);
+    update_nfo_full(
+        nfo_p,
         &payload.video_id,
         payload.rating,
-        &payload.level,
+        Some(payload.criticrating),
         &payload.actors,
         &payload.release_date,
         &payload.date_added,
         payload.is_uncensored,
-        payload.nfo_path.as_deref(),
     ).map_err(map_err)?;
 
     let mut new_genres = Vec::new();
@@ -293,10 +304,11 @@ pub async fn update_video_info(
         &payload.video_path,
         &payload.folder_path,
         payload.poster_path.as_deref(),
-        payload.nfo_path.as_deref(),
-        Some(&target_nfos),
+        Some(&target_nfo),
+        None, // 徹底拋棄 nfos_path
         &payload.actors,
         &new_genres,
+        payload.criticrating,
     )
     .map_err(map_err)?;
 
@@ -309,7 +321,7 @@ pub async fn update_video_info(
         .map_err(map_err)?;
     }
 
-    Ok(Json(target_nfos))
+    Ok(Json(target_nfo))
 }
 
 #[derive(Deserialize)]
@@ -317,8 +329,9 @@ pub async fn update_video_info(
 pub struct UpdateRatingPayload {
     pub video_id: String,
     pub rating: f64,
+    pub criticrating: i32,
     pub nfo_path: Option<String>,
-    pub nfos_path: Option<String>,
+    pub _nfos_path: Option<String>,
     pub folder_path: Option<String>,
 }
 
@@ -326,37 +339,154 @@ pub async fn update_rating(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<UpdateRatingPayload>,
 ) -> ApiResult<String> {
-    state.db.update_rating(&payload.video_id, payload.rating)
+    state.db.update_rating(&payload.video_id, payload.rating, payload.criticrating)
         .map_err(map_err)?;
 
-    let target_nfos = if let Some(ref existing) = payload.nfos_path {
-        existing.clone()
-    } else if let Some(ref nfo) = payload.nfo_path {
-        let nfo_p = Path::new(nfo);
-        nfo_p.with_extension("nfos").to_string_lossy().to_string()
+    let target_nfo = if let Some(ref nfo) = payload.nfo_path {
+        nfo.clone()
     } else if let Some(ref folder) = payload.folder_path {
         let folder_p = Path::new(folder);
-        folder_p
-            .join(format!("{}.nfos", payload.video_id))
-            .to_string_lossy()
-            .to_string()
+        let mut found_nfo = None;
+        if let Ok(entries) = std::fs::read_dir(folder_p) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() && path.extension().map_or(false, |e| e.to_string_lossy().to_lowercase() == "nfo") {
+                    found_nfo = Some(path.to_string_lossy().to_string());
+                    break;
+                }
+            }
+        }
+
+        found_nfo.unwrap_or_else(|| {
+            folder_p
+                .join(format!("{}.nfo", payload.video_id))
+                .to_string_lossy()
+                .to_string()
+        })
     } else {
         return Ok(Json(String::new()));
     };
 
-    let nfos_p = Path::new(&target_nfos);
-    update_nfos(nfos_p, &payload.video_id, payload.rating, payload.nfo_path.as_deref()).map_err(map_err)?;
+    let nfo_p = Path::new(&target_nfo);
+    update_nfo(nfo_p, &payload.video_id, payload.rating, Some(payload.criticrating)).map_err(map_err)?;
 
     {
         let conn = state.db.conn.lock().unwrap();
         conn.execute(
-            "UPDATE videos SET nfos_path = ?1 WHERE id = ?2",
-            rusqlite::params![target_nfos, payload.video_id],
+            "UPDATE videos SET nfo_path = ?1, nfos_path = NULL WHERE id = ?2",
+            rusqlite::params![target_nfo, payload.video_id],
         )
         .map_err(map_err)?;
     }
 
-    Ok(Json(target_nfos))
+    Ok(Json(target_nfo))
+}
+
+pub async fn get_folder_images(
+    Json(payload): Json<RescanPayload>, // reuse the folder_path payload
+) -> ApiResult<Vec<String>> {
+    let folder = Path::new(&payload.folder_path);
+    if !folder.exists() || !folder.is_dir() {
+        return Err(map_err("資料夾不存在"));
+    }
+
+    let mut images = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(folder) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() {
+                if let Some(ext) = path
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .map(|s| s.to_lowercase())
+                {
+                    if ext == "jpg" || ext == "jpeg" || ext == "png" || ext == "webp" {
+                        images.push(path.to_string_lossy().to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    images.sort();
+    Ok(Json(images))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CropPayload {
+    pub image_path: String,
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+    pub output_folder: String,
+}
+
+pub async fn crop_and_save_poster(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<CropPayload>,
+) -> ApiResult<String> {
+    use image::GenericImageView;
+
+    let img_path = Path::new(&payload.image_path);
+    if !img_path.exists() {
+        return Err(map_err("來源圖片不存在"));
+    }
+
+    let mut img = image::open(img_path).map_err(map_err)?;
+    
+    let (img_w, img_h) = img.dimensions();
+    let safe_x = payload.x.min(img_w);
+    let safe_y = payload.y.min(img_h);
+    let safe_w = payload.width.min(img_w - safe_x);
+    let safe_h = payload.height.min(img_h - safe_y);
+
+    if safe_w == 0 || safe_h == 0 {
+        return Err(map_err("裁切區域無效"));
+    }
+
+    let cropped = img.crop(safe_x, safe_y, safe_w, safe_h);
+    
+    let out_dir = Path::new(&payload.output_folder);
+    if !out_dir.exists() {
+        return Err(map_err("輸出資料夾不存在"));
+    }
+
+    let target_path = out_dir.join("stick_poster.jpg");
+    cropped
+        .save(&target_path)
+        .map_err(map_err)?;
+
+    // 手動裁切後，也要確保 .nfo 檔更新 poster 標籤，並產生新縮圖
+    if let Ok(entries) = std::fs::read_dir(out_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() && path.extension().map_or(false, |e| e.to_string_lossy().to_lowercase() == "nfo") {
+                if let Ok(nfo_data) = crate::parser::parse_nfo(&path) {
+                    // Update thumbnail immediately
+                    if let Some(ref id) = nfo_data.num {
+                        let thumbnail_dir = state.db.app_data_dir.join("thumbnails");
+                        std::fs::create_dir_all(&thumbnail_dir).unwrap_or_default();
+                        let safe_id = id.replace("/", "_").replace("\\", "_").replace(":", "_");
+                        let thumb_path = thumbnail_dir.join(format!("{}.jpg", safe_id));
+                        let thumb = cropped.thumbnail(300, 450);
+                        let _ = thumb.save(&thumb_path);
+                    }
+
+                    let _ = crate::parser::update_nfo(
+                        &path,
+                        nfo_data.num.as_deref().unwrap_or(""),
+                        nfo_data.rating.unwrap_or(0.0),
+                        nfo_data.criticrating
+                    );
+                }
+                break;
+            }
+        }
+    }
+
+    Ok(Json(target_path.to_string_lossy().to_string()))
 }
 
 #[derive(Deserialize)]
@@ -497,12 +627,40 @@ pub async fn serve_video_file(Query(query): Query<FileQuery>, req: Request) -> R
     }
 }
 
-pub async fn serve_image_file(Query(query): Query<FileQuery>, req: Request) -> Result<axum::response::Response, ApiError> {
+#[derive(Deserialize)]
+pub struct ImageQuery {
+    pub path: String,
+    pub id: Option<String>,
+    pub thumb: Option<bool>,
+}
+
+pub async fn serve_image_file(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<ImageQuery>,
+    req: Request
+) -> Result<axum::response::Response, ApiError> {
+    let (parts, _) = req.into_parts();
+
+    if query.thumb.unwrap_or(false) {
+        if let Some(ref id) = query.id {
+            let safe_id = id.replace("/", "_").replace("\\", "_").replace(":", "_");
+            let thumb_path = state.db.app_data_dir.join("thumbnails").join(format!("{}.jpg", safe_id));
+            if thumb_path.exists() {
+                let req_for_thumb = Request::from_parts(parts.clone(), axum::body::Body::empty());
+                match ServeFile::new(thumb_path).oneshot(req_for_thumb).await {
+                    Ok(res) => return Ok(res.into_response()),
+                    Err(_) => {} // Fallback
+                }
+            }
+        }
+    }
+
     let path = PathBuf::from(query.path);
     if !path.exists() {
         return Err((StatusCode::NOT_FOUND, "File not found".to_string()));
     }
-    match ServeFile::new(path).oneshot(req).await {
+    
+    match ServeFile::new(path).oneshot(Request::from_parts(parts, axum::body::Body::empty())).await {
         Ok(res) => Ok(res.into_response()),
         Err(_) => Err((StatusCode::INTERNAL_SERVER_ERROR, "Error serving file".to_string())),
     }
@@ -529,3 +687,4 @@ pub async fn save_libraries(
     std::fs::write(path, content).map_err(map_err)?;
     Ok(Json(()))
 }
+

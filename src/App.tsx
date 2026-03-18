@@ -30,11 +30,11 @@ export default function App() {
     sort_by: "date_added",
     sort_order: "DESC",
   });
-  const [gridSize, setGridSize] = useState(180);
   const [totalCount, setTotalCount] = useState(0);
   const [favoriteCount, setFavoriteCount] = useState(0);
   const [isScanning, setIsScanning] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
   const [libraries, setLibraries] = useState<Library[]>([]);
   const [activeLibraryId, setActiveLibraryId] = useState<string>("");
@@ -181,28 +181,20 @@ export default function App() {
   };
 
   // 最愛切換後更新本地狀態
-  const handleFavoriteToggled = (id: string, newState: boolean) => {
+  const handleFavoriteToggled = useCallback((id: string, newState: boolean) => {
     setVideos((prev) =>
       prev.map((v) =>
         v.id === id ? { ...v, is_favorite: newState } : v
       )
     );
     setFavoriteCount((prev) => prev + (newState ? 1 : -1));
-  };
+  }, []);
 
-  // 評分更新後更新本地狀態（含新 nfos_path）
-  const handleRatingUpdated = (id: string, newRating: number, nfosPath: string) => {
-    setVideos((prev) =>
-      prev.map((v) =>
-        v.id === id ? { ...v, rating: newRating, nfos_path: nfosPath || v.nfos_path } : v
-      )
-    );
-  };
 
   // 影片重新索引後更新本地狀態
-  const handleVideoUpdated = (updated: VideoEntry) => {
+  const handleVideoUpdated = useCallback((updated: VideoEntry) => {
     setVideos((prev) => prev.map((v) => (v.id === updated.id ? updated : v)));
-  };
+  }, []);
 
   // 切換媒體庫
   const handleLibraryChange = async (id: string) => {
@@ -221,10 +213,10 @@ export default function App() {
     }
   };
 
-  const handleVideoRemoved = (id: string) => {
+  const handleVideoRemoved = useCallback((id: string) => {
     setVideos((prev) => prev.filter((v) => v.id !== id));
     setTotalCount((prev) => Math.max(0, prev - 1));
-  };
+  }, []);
 
   // 篩選條件改變
   const handleFilterChange = async (newFilter: VideoFilter) => {
@@ -269,7 +261,7 @@ export default function App() {
 
   if (page === "settings") {
     return (
-      <div className="min-h-screen flex flex-col">
+      <div className="min-h-[100dvh] flex flex-col">
         <SettingsPage
           libraries={libraries}
           activeLibraryId={activeLibraryId}
@@ -290,7 +282,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="min-h-[100dvh] flex flex-col">
       <Header
         libraries={libraries}
         activeLibraryId={activeLibraryId}
@@ -298,25 +290,21 @@ export default function App() {
         genres={genres}
         levels={levels}
         filter={filter}
-        gridSize={gridSize}
-        totalCount={totalCount}
-        currentCount={videos.length}
         onFilterChange={handleFilterChange}
-        onGridSizeChange={setGridSize}
         onRefresh={handleScan}
         onOpenSettings={() => setPage("settings")}
         isScanning={isScanning}
       />
 
-      <main className="flex-grow p-8">
+      <main className="flex-grow p-4 sm:p-8">
         <VideoGrid
           videos={videos}
-          gridSize={gridSize}
           onFavoriteToggled={handleFavoriteToggled}
-          onRatingUpdated={handleRatingUpdated}
           onVideoUpdated={handleVideoUpdated}
           onVideoRemoved={handleVideoRemoved}
           onToast={showToast}
+          disableHover={isModalOpen}
+          onModalStateChange={setIsModalOpen}
         />
       </main>
 

@@ -52,7 +52,7 @@ export async function updateVideoInfo(
     folderPath: string,
     posterPath: string | null,
     nfoPath: string | null,
-    nfosPath: string | null
+    criticrating: number
 ): Promise<string> {
     return post<string>("update_video_info", {
         originalId,
@@ -60,6 +60,7 @@ export async function updateVideoInfo(
         title,
         level,
         rating,
+        criticrating,
         actors,
         releaseDate,
         dateAdded,
@@ -69,7 +70,6 @@ export async function updateVideoInfo(
         folderPath,
         posterPath,
         nfoPath,
-        nfosPath,
     });
 }
 
@@ -77,11 +77,11 @@ export async function updateVideoInfo(
 export async function updateRating(
     videoId: string,
     rating: number,
+    criticrating: number,
     nfoPath: string | null,
-    nfosPath: string | null,
     folderPath: string | null
 ): Promise<string> {
-    return post<string>("update_rating", { videoId, rating, nfoPath, nfosPath, folderPath });
+    return post<string>("update_rating", { videoId, rating, criticrating, nfoPath, folderPath });
 }
 
 /// 切換我的最愛
@@ -124,8 +124,11 @@ export async function deleteDatabase(dbName: string): Promise<void> {
 }
 
 /// 回傳圖片伺服器網址
-export async function readImage(path: string): Promise<string> {
-    return `/api/image?path=${encodeURIComponent(path)}`;
+export async function readImage(path: string, id?: string, thumb: boolean = true): Promise<string> {
+    let url = `/api/image?path=${encodeURIComponent(path)}`;
+    if (id) url += `&id=${encodeURIComponent(id)}`;
+    if (thumb) url += `&thumb=true`;
+    return url;
 }
 
 /// 列出伺服器資料夾
@@ -146,4 +149,28 @@ export async function getLibraries(): Promise<any[]> {
 /// 儲存媒體庫清單至伺服器
 export async function saveLibraries(libs: any[]): Promise<void> {
     return post<void>("save_libraries", libs);
+}
+
+/// 取得資料夾內所有圖片
+export async function getFolderImages(folderPath: string): Promise<string[]> {
+    return post<string[]>("get_folder_images", { folderPath });
+}
+
+/// 裁切並儲存海報
+export async function cropAndSavePoster(
+    imagePath: string,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    outputFolder: string
+): Promise<string> {
+    return post<string>("crop_and_save_poster", {
+        imagePath,
+        x,
+        y,
+        width,
+        height,
+        outputFolder,
+    });
 }

@@ -20,6 +20,22 @@ use crate::database::Database;
 use crate::scanner::scan_library_paths;
 use std::sync::Mutex;
 
+use std::fs::OpenOptions;
+
+#[macro_export]
+macro_rules! app_log {
+    ($($arg:tt)*) => {{
+        let msg = format!($($arg)*);
+        let app_data_dir = std::env::var("STICKPLAY_CONFIG_DIR").unwrap_or_else(|_| "./config".to_string());
+        std::fs::create_dir_all(&app_data_dir).ok();
+        let log_path = std::path::Path::new(&app_data_dir).join("stickplay_server.log");
+        if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(&log_path) {
+            use std::io::Write;
+            let _ = writeln!(file, "{}", msg);
+        }
+    }};
+}
+
 pub struct AppState {
     pub db: Database,
     pub watch_paths: Mutex<HashSet<String>>,
@@ -27,10 +43,17 @@ pub struct AppState {
 }
 
 pub async fn run() {
+    app_log!("[INIT] 開始執行 run(), 讀取環境變數...");
+
     let app_data_dir = std::env::var("STICKPLAY_CONFIG_DIR").unwrap_or_else(|_| "./config".to_string());
+    app_log!("[INIT] STICKPLAY_CONFIG_DIR = {}", app_data_dir);
+
     let config_path = std::path::PathBuf::from(app_data_dir);
     
+    app_log!("[INIT] 正在初始化資料庫...");
     let db = Database::new(config_path.clone()).expect("資料庫初始化失敗");
+    app_log!("[INIT] 資料庫初始化完成！");
+
     let shared_state = Arc::new(AppState {
         db,
         watch_paths: Mutex::new(HashSet::new()),
@@ -43,7 +66,7 @@ pub async fn run() {
     
     // Watcher thread (Consumer)
     tokio::spawn(async move {
-        println!("Watcher: Background task (consumer) started");
+        app_log!("Watcher: Background task (consumer) started");
         let mut last_trigger = std::time::Instant::now();
         let debounce_duration = Duration::from_secs(5);
 
@@ -56,7 +79,7 @@ pub async fn run() {
             // Wait a bit to ensure file operations are finished
             tokio::time::sleep(Duration::from_millis(1000)).await;
             
-            println!("Watcher: Detected change in {}, triggering rescan", path_to_scan);
+            app_log!("Watcher: Detected change in {}, triggering rescan", path_to_scan);
             let paths = state_for_watcher.watch_paths.lock().unwrap().iter().cloned().collect::<Vec<_>>();
             if !paths.is_empty() {
                 let _ = scan_library_paths(&state_for_watcher.db, &paths);
@@ -107,6 +130,8 @@ pub async fn run() {
         .route("/api/list_dirs", post(api::list_dirs))
         .route("/api/get_libraries", post(api::get_libraries))
         .route("/api/save_libraries", post(api::save_libraries))
+        .route("/api/get_folder_images", post(api::get_folder_images))
+        .route("/api/crop_and_save_poster", post(api::crop_and_save_poster))
         .route("/api/video", get(api::serve_video_file))
         .route("/api/image", get(api::serve_image_file))
         .fallback_service(ServeDir::new(&frontend_dir).fallback(ServeFile::new(format!("{}/index.html", frontend_dir))))
@@ -116,7 +141,6 @@ pub async fn run() {
     let port = std::env::var("PORT").unwrap_or_else(|_| "8099".to_string());
     let addr = format!("0.0.0.0:{}", port);
     let listener = TcpListener::bind(&addr).await.expect("無法綁定 port");
-    println!("Server running on http://{}", addr);
-
+    app_log!("Server running on http://{}", addr);
     axum::serve(listener, app).await.expect("伺服器執行錯誤");
 }

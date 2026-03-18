@@ -62,9 +62,13 @@ impl Database {
             ",
         )?;
 
-        // Migration: 若舊版 DB 缺少 nfos_path 欄位則補上
+        // Migration: 若舊版 DB 缺少 nfos_path 欄位則補上 (保持相容性但不再主動使用)
         conn.execute_batch("ALTER TABLE videos ADD COLUMN nfos_path TEXT;")
-            .ok(); // 忽略已存在的錯誤
+            .ok(); 
+
+        // Migration: 新增 criticrating 欄位
+        conn.execute_batch("ALTER TABLE videos ADD COLUMN criticrating INTEGER NOT NULL DEFAULT 0;")
+            .ok();
 
         // Migration: 清除除了「無碼」以外的舊分類標籤
         conn.execute("DELETE FROM video_genres WHERE genre != '無碼'", params![])
@@ -97,6 +101,7 @@ impl Database {
         nfos_path: Option<&str>,
         actors: &[String],
         genres: &[String],
+        criticrating: i32,
     ) -> SqlResult<()> {
         let conn = self.conn.lock().unwrap();
 
@@ -107,8 +112,8 @@ impl Database {
         )?;
 
         conn.execute(
-            "INSERT INTO videos (id, title, level, rating, release_date, date_added, video_path, folder_path, poster_path, nfo_path, nfos_path)
-             VALUES (?1, ?2, ?3, COALESCE(?4, 0.0), ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+            "INSERT INTO videos (id, title, level, rating, release_date, date_added, video_path, folder_path, poster_path, nfo_path, nfos_path, criticrating)
+             VALUES (?1, ?2, ?3, COALESCE(?4, 0.0), ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
              ON CONFLICT(id) DO UPDATE SET
                 title = excluded.title,
                 level = excluded.level,
@@ -119,8 +124,9 @@ impl Database {
                 folder_path = excluded.folder_path,
                 poster_path = excluded.poster_path,
                 nfo_path = excluded.nfo_path,
-                nfos_path = excluded.nfos_path",
-            params![id, title, level, rating, release_date, date_added, video_path, folder_path, poster_path, nfo_path, nfos_path],
+                nfos_path = excluded.nfos_path,
+                criticrating = excluded.criticrating",
+            params![id, title, level, rating, release_date, date_added, video_path, folder_path, poster_path, nfo_path, nfos_path, criticrating],
         )?;
 
         // 清除舊的 actors / genres 然後重新插入
@@ -214,7 +220,7 @@ impl Database {
             };
             let column = match sort_by {
                 "title" => "v.title",
-                "rating" => "v.rating",
+                "rating" => "v.criticrating",
                 "release_date" => "v.release_date",
                 "date_added" => "v.date_added",
                 "id" => "v.id",
@@ -227,7 +233,7 @@ impl Database {
 
         let query = format!(
             "SELECT v.id, v.title, v.level, v.rating, v.release_date, v.date_added,
-                    v.video_path, v.folder_path, v.poster_path, v.nfo_path, v.nfos_path, v.is_favorite
+                    v.video_path, v.folder_path, v.poster_path, v.nfo_path, v.nfos_path, v.is_favorite, v.criticrating
              FROM videos v
              {} {}",
             where_clause, order_clause
@@ -251,6 +257,7 @@ impl Database {
                 row.get::<_, Option<String>>(9)?,
                 row.get::<_, Option<String>>(10)?,
                 row.get::<_, bool>(11)?,
+                row.get::<_, i32>(12)?,
             ))
         })?;
 
@@ -269,6 +276,7 @@ impl Database {
                 nfo_path,
                 nfos_path,
                 is_favorite,
+                criticrating,
             ) = row?;
 
             // 查詢關聯的 actors
@@ -304,18 +312,19 @@ impl Database {
                 nfo_path,
                 nfos_path,
                 is_favorite,
+                criticrating,
             });
         }
 
         Ok(videos)
     }
 
-    /// 更新影片評分
-    pub fn update_rating(&self, video_id: &str, rating: f64) -> SqlResult<()> {
+    /// 更新影片評分與評論評分
+    pub fn update_rating(&self, video_id: &str, rating: f64, criticrating: i32) -> SqlResult<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "UPDATE videos SET rating = ?1 WHERE id = ?2",
-            params![rating, video_id],
+            "UPDATE videos SET rating = ?1, criticrating = ?2 WHERE id = ?3",
+            params![rating, criticrating, video_id],
         )?;
         Ok(())
     }

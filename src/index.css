@@ -16,12 +16,12 @@ body {
     margin: 0;
     background-color: #09090b;
     color: #fafafa;
-    min-height: 100vh;
-    overflow-x: hidden;
+    min-height: 100dvh;
+    overflow-x: clip;
 }
 
 #root {
-    min-height: 100vh;
+    min-height: 100dvh;
     display: flex;
     flex-direction: column;
 }
@@ -42,9 +42,7 @@ body {
 
 /* 毛玻璃面板 */
 .glass-panel {
-    background: rgba(24, 24, 27, 0.8);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
+    background: rgba(24, 24, 27, 0.95);
     border: 1px solid rgba(63, 63, 70, 0.3);
 }
 

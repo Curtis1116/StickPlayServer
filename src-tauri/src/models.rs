@@ -9,6 +9,7 @@ pub struct VideoEntry {
     pub genres: Vec<String>,
     pub level: String,
     pub rating: f64,
+    pub criticrating: i32,
     pub release_date: String,
     pub date_added: String,
     pub video_path: String,
@@ -29,8 +30,10 @@ pub struct NfoData {
     pub actors: Vec<String>,
     pub genres: Vec<String>,
     pub rating: Option<f64>,
+    pub criticrating: Option<i32>,
     pub release_date: String,
     pub date_added: String,
+    pub poster: Option<String>,
 }
 
 /// 從資料夾名稱 Regex 解析出的中繼資料
