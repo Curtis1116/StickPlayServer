@@ -24,7 +24,7 @@ WORKDIR /app
 
 # 複製編譯完成的前端與後端
 COPY --from=frontend-builder /app/dist /app/dist
-COPY --from=backend-builder /app/src-tauri/target/release/stickplay /app/stickplay
+COPY --from=backend-builder /app/src-tauri/target/release/StickPlayServer /app/StickPlayServer
 
 # 建立供掛載的目錄
 RUN mkdir -p /media /config
@@ -39,4 +39,4 @@ ENV PGID=1000
 # 曝露 port 8099
 EXPOSE 8099
 
-CMD ["/app/stickplay"]
+CMD ["/app/StickPlayServer"]

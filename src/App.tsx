@@ -60,7 +60,7 @@ export default function App() {
               id: "default",
               name: "預設媒體庫",
               paths: oldPaths,
-              db_name: "stickplay"
+              db_name: "stickplayserver"
             }];
             await saveLibraries(libs);
           } else {

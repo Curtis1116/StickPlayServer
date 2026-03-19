@@ -241,7 +241,7 @@ export default function Header({
                 {!isSearchVisible && (
                     <div className="flex items-center gap-3">
                         <span className="text-xl font-black tracking-tighter bg-gradient-to-br from-indigo-400 to-purple-500 bg-clip-text text-transparent select-none">
-                            StickPlay
+                            StickPlayServer
                         </span>
                     </div>
                 )}
