@@ -46,7 +46,7 @@ pub struct FolderMeta {
 }
 
 /// 前端傳來的篩選/排序參數
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct VideoFilter {
     pub genres: Option<Vec<String>>,
     pub levels: Option<Vec<String>>,

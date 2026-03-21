@@ -223,6 +223,7 @@ const VideoCard = memo(({
             {showCropModal && (
                 <ManualCropModal
                     folderPath={video.folder_path}
+                    videoId={video.id}
                     onClose={() => setShowCropModal(false)}
                     onSaved={(newPosterPath) => {
                         onVideoUpdated({ ...video, poster_path: newPosterPath });

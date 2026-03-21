@@ -26,7 +26,7 @@ struct ContentView: View {
     
     // Grid Setup
     private let columns = [
-        GridItem(.adaptive(minimum: 160), spacing: 16)
+        GridItem(.adaptive(minimum: 100), spacing: 12)
     ]
     
     var filteredVideos: [VideoEntry] {
@@ -268,8 +268,26 @@ struct ContentView: View {
     
     private func playVideo(video: VideoEntry) {
         guard let serverVideoUrl = APIService.shared.getVideoUrl(path: video.videoPath) else { return }
-        UIApplication.shared.open(serverVideoUrl, options: [:]) { success in
-            if !success { self.showingInfuseAlert = true }
+        
+        // 1. 取得原始網址字串
+        let originalUrlString = serverVideoUrl.absoluteString
+        
+        // 2. 進行更嚴格的編碼：將所有特殊符號（如 : / ? & =）都編碼轉義，確保能安全作為 url 參數傳遞
+        let customAllowed = CharacterSet.alphanumerics
+        guard let escapedUrl = originalUrlString.addingPercentEncoding(withAllowedCharacters: customAllowed) else {
+            UIApplication.shared.open(serverVideoUrl, options: [:], completionHandler: nil)
+            return
+        }
+        
+        // 3. 嘗試開啟 Infuse
+        let infuseUrlString = "infuse://x-callback-url/play?url=\(escapedUrl)"
+        if let infuseUrl = URL(string: infuseUrlString) {
+            UIApplication.shared.open(infuseUrl, options: [:]) { success in
+                if !success {
+                    // 如果開啟 Infuse 失敗（例如未安裝），則回退到瀏覽器播放
+                    UIApplication.shared.open(serverVideoUrl, options: [:], completionHandler: nil)
+                }
+            }
         }
     }
 }

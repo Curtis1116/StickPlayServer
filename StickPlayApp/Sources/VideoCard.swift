@@ -20,7 +20,7 @@ struct VideoCard: View {
                     if let posterImage = posterImage {
                         Image(uiImage: posterImage)
                             .resizable()
-                            .aspectRatio(contentMode: .fill)
+                            .aspectRatio(contentMode: .fit)
                     } else if hasFailedToLoadImage {
                         VStack(spacing: 4) {
                             Image(systemName: "film")
@@ -57,7 +57,7 @@ struct VideoCard: View {
                         .padding(8)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
                 }
-                .frame(height: 240)
+                .aspectRatio(2/3, contentMode: .fit)
                 .contentShape(Rectangle())
                 .clipped()
             }

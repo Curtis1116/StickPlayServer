@@ -163,7 +163,8 @@ export async function cropAndSavePoster(
     y: number,
     width: number,
     height: number,
-    outputFolder: string
+    outputFolder: string,
+    videoId?: string
 ): Promise<string> {
     return post<string>("crop_and_save_poster", {
         imagePath,
@@ -172,5 +173,6 @@ export async function cropAndSavePoster(
         width,
         height,
         outputFolder,
+        videoId,
     });
 }

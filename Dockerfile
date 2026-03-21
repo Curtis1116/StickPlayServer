@@ -27,7 +27,7 @@ WORKDIR /app
 
 # 複製編譯完成的前端與後端
 COPY --from=frontend-builder /app/dist /app/dist
-COPY --from=backend-builder /app/src-tauri/target/release/StickPlayServer /app/stickplay
+COPY --from=backend-builder /app/src-tauri/target/release/stickplay-server /app/stickplay
 
 # 建立供掛載的目錄
 RUN mkdir -p /media /config

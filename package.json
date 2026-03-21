@@ -1,5 +1,5 @@
 {
-  "name": "StickPlayServer",
+  "name": "stickplay-server",
   "private": true,
   "version": "1.2.0",
   "type": "module",

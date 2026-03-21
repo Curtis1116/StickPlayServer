@@ -1,10 +1,10 @@
 [package]
-name = "StickPlayServer"
+name = "stickplay-server"
 version = "1.2.0"
 description = "StickPlay 影片管理資料庫"
 authors = ["huachun"]
 edition = "2021"
-default-run = "StickPlayServer"
+default-run = "stickplay-server"
 
 [lib]
 name = "stickplay_lib"

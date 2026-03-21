@@ -7,6 +7,7 @@ import { getFolderImages, cropAndSavePoster, readImage } from "../api";
 
 interface ManualCropModalProps {
     folderPath: string;
+    videoId: string;
     onClose: () => void;
     onSaved: (newPosterPath: string) => void;
     onToast: (msg: string) => void;
@@ -14,6 +15,7 @@ interface ManualCropModalProps {
 
 export default function ManualCropModal({
     folderPath,
+    videoId,
     onClose,
     onSaved,
     onToast,
@@ -92,7 +94,8 @@ export default function ManualCropModal({
                 y,
                 width,
                 height,
-                folderPath
+                folderPath,
+                videoId
             );
             onToast("✅ 海報已儲存");
             onSaved(result);

@@ -414,6 +414,7 @@ pub async fn get_folder_images(
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CropPayload {
+    pub video_id: Option<String>,
     pub image_path: String,
     pub x: u32,
     pub y: u32,
@@ -426,66 +427,101 @@ pub async fn crop_and_save_poster(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<CropPayload>,
 ) -> ApiResult<String> {
-    use image::GenericImageView;
+    let state_cloned = Arc::clone(&state);
+    let payload_cloned = payload;
 
-    let img_path = Path::new(&payload.image_path);
-    if !img_path.exists() {
-        return Err(map_err("來源圖片不存在"));
-    }
+    // 將耗時的圖片處理與檔案 I/O 移至 blocking thread
+    let result: Result<String, String> = tokio::task::spawn_blocking(move || {
+        use image::GenericImageView;
 
-    let mut img = image::open(img_path).map_err(map_err)?;
-    
-    let (img_w, img_h) = img.dimensions();
-    let safe_x = payload.x.min(img_w);
-    let safe_y = payload.y.min(img_h);
-    let safe_w = payload.width.min(img_w - safe_x);
-    let safe_h = payload.height.min(img_h - safe_y);
+        let img_path = Path::new(&payload_cloned.image_path);
+        if !img_path.exists() {
+            return Err("來源圖片不存在".to_string());
+        }
 
-    if safe_w == 0 || safe_h == 0 {
-        return Err(map_err("裁切區域無效"));
-    }
+        let mut img = image::open(img_path).map_err(|e| e.to_string())?;
+        
+        let (img_w, img_h) = img.dimensions();
+        let safe_x = payload_cloned.x.min(img_w);
+        let safe_y = payload_cloned.y.min(img_h);
+        let safe_w = payload_cloned.width.min(img_w - safe_x);
+        let safe_h = payload_cloned.height.min(img_h - safe_y);
 
-    let cropped = img.crop(safe_x, safe_y, safe_w, safe_h);
-    
-    let out_dir = Path::new(&payload.output_folder);
-    if !out_dir.exists() {
-        return Err(map_err("輸出資料夾不存在"));
-    }
+        if safe_w == 0 || safe_h == 0 {
+            return Err("裁切區域無效".to_string());
+        }
 
-    let target_path = out_dir.join("stick_poster.jpg");
-    cropped
-        .save(&target_path)
-        .map_err(map_err)?;
+        let cropped = img.crop(safe_x, safe_y, safe_w, safe_h);
+        
+        let out_dir = Path::new(&payload_cloned.output_folder);
+        if !out_dir.exists() {
+            return Err("輸出資料夾不存在".to_string());
+        }
 
-    // 手動裁切後，也要確保 .nfo 檔更新 poster 標籤，並產生新縮圖
-    if let Ok(entries) = std::fs::read_dir(out_dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_file() && path.extension().map_or(false, |e| e.to_string_lossy().to_lowercase() == "nfo") {
-                if let Ok(nfo_data) = crate::parser::parse_nfo(&path) {
-                    // Update thumbnail immediately
-                    if let Some(ref id) = nfo_data.num {
-                        let thumbnail_dir = state.db.app_data_dir.join("thumbnails");
-                        std::fs::create_dir_all(&thumbnail_dir).unwrap_or_default();
-                        let safe_id = id.replace("/", "_").replace("\\", "_").replace(":", "_");
-                        let thumb_path = thumbnail_dir.join(format!("{}.jpg", safe_id));
-                        let thumb = cropped.thumbnail(300, 450);
-                        let _ = thumb.save(&thumb_path);
-                    }
+        // 決定目標檔名：優先取代 poster.jpg
+        let target_path = out_dir.join("poster.jpg");
+        cropped.save(&target_path).map_err(|e| e.to_string())?;
 
-                    let _ = crate::parser::update_nfo(
-                        &path,
-                        nfo_data.num.as_deref().unwrap_or(""),
-                        nfo_data.rating.unwrap_or(0.0),
-                        nfo_data.criticrating
-                    );
+        // 尋找 NFO 路徑：優先依據 video_id 從資料庫查找
+        let mut nfo_path_opt = None;
+        let mut video_id_final = String::new();
+
+        if let Some(ref vid) = payload_cloned.video_id {
+            video_id_final = vid.clone();
+            // 從 DB 查找 NFO 路徑
+            if let Ok(videos) = state_cloned.db.query_videos(&VideoFilter {
+                search: Some(vid.clone()),
+                ..Default::default()
+            }) {
+                if let Some(v) = videos.iter().find(|v| v.id == *vid) {
+                    nfo_path_opt = v.nfo_path.clone().map(PathBuf::from);
                 }
-                break;
             }
         }
-    }
 
-    Ok(Json(target_path.to_string_lossy().to_string()))
+        // 如果 DB 沒找到或沒給 ID，嘗試在資料夾找第一個 .nfo
+        if nfo_path_opt.is_none() {
+            if let Ok(entries) = std::fs::read_dir(out_dir) {
+                for entry in entries.flatten() {
+                    let p = entry.path();
+                    if p.is_file() && p.extension().map_or(false, |e| e.to_string_lossy().to_lowercase() == "nfo") {
+                        if let Ok(nfo_data) = crate::parser::parse_nfo(&p) {
+                            if video_id_final.is_empty() {
+                                video_id_final = nfo_data.num.unwrap_or_default();
+                            }
+                            nfo_path_opt = Some(p);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        // 更新縮圖 (Thumbnail)
+        if !video_id_final.is_empty() {
+            let thumbnail_dir = state_cloned.db.app_data_dir.join("thumbnails");
+            let _ = std::fs::create_dir_all(&thumbnail_dir);
+            let safe_id = video_id_final.replace("/", "_").replace("\\", "_").replace(":", "_");
+            let thumb_path = thumbnail_dir.join(format!("{}.jpg", safe_id));
+            let _ = cropped.thumbnail(300, 450).save(&thumb_path);
+        }
+
+        // 更新 NFO 標籤 (指向 poster.jpg)
+        if let Some(nfo_p) = nfo_path_opt {
+             if let Ok(nfo_data) = crate::parser::parse_nfo(&nfo_p) {
+                 let _ = crate::parser::update_nfo(
+                    &nfo_p,
+                    nfo_data.num.as_deref().unwrap_or(""),
+                    nfo_data.rating.unwrap_or(0.0),
+                    nfo_data.criticrating
+                );
+             }
+        }
+
+        Ok(target_path.to_string_lossy().to_string())
+    }).await.map_err(|e| map_err(e))?;
+
+    result.map(Json).map_err(map_err)
 }
 
 #[derive(Deserialize)]
