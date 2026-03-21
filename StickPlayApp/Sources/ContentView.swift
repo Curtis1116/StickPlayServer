@@ -3,7 +3,7 @@ import SwiftUI
 struct ContentView: View {
     @State private var videos: [VideoEntry] = []
     @State private var libraries: [Library] = []
-    @State private var currentLibrary: String = UserDefaults.standard.string(forKey: "currentLibrary") ?? "Default"
+    @AppStorage("currentLibrary") private var currentLibrary: String = "Default"
     
     @State private var isLoading = true
     @State private var errorMessage: String?
@@ -38,7 +38,7 @@ struct ContentView: View {
     }
     
     var body: some View {
-        NavigationView {
+        NavigationStack {
             ZStack {
                 Color(UIColor.systemGroupedBackground).ignoresSafeArea()
                 
@@ -104,14 +104,16 @@ struct ContentView: View {
                         }
                         
                         Menu {
-                            Section("Libraries") {
-                                ForEach(libraries) { lib in
-                                    Button(action: { switchLibrary(lib) }) {
-                                        HStack {
-                                            Text(lib.name)
-                                            if currentLibrary == lib.name { Image(systemName: "checkmark") }
-                                        }
+                            Picker("Libraries", selection: Binding(
+                                get: { currentLibrary },
+                                set: { newValue in
+                                    if let lib = libraries.first(where: { $0.name == newValue }) {
+                                        switchLibrary(lib)
                                     }
+                                }
+                            )) {
+                                ForEach(libraries) { lib in
+                                    Text(lib.name).tag(lib.name)
                                 }
                             }
                         } label: {
@@ -234,7 +236,6 @@ struct ContentView: View {
             do {
                 try await api.switchLibrary(name: lib.dbName)
                 currentLibrary = lib.name
-                UserDefaults.standard.set(lib.name, forKey: "currentLibrary")
                 await loadData()
             } catch {
                 self.errorMessage = "Switch failed: \(error.localizedDescription)"

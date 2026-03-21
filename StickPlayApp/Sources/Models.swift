@@ -17,6 +17,7 @@ struct VideoEntry: Codable, Identifiable {
     let nfoPath: String?
     let nfosPath: String?
     let isFavorite: Bool
+    
     enum CodingKeys: String, CodingKey {
         case id, title, actors, genres, level, rating, criticrating
         case releaseDate = "release_date"
