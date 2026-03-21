@@ -46,7 +46,9 @@ struct ContentView: View {
                     if isSearchVisible {
                         SearchBar(text: $searchText)
                             .padding(.horizontal)
-                            .padding(.vertical, 8)
+                            .padding(.top, -12) // 縮減與工具列的間距
+                            .padding(.bottom, 8)
+                            .zIndex(1)
                     }
                     
                     if isLoading {
@@ -82,7 +84,7 @@ struct ContentView: View {
                             }
                             .padding(.horizontal)
                         }
-                        .padding(.top, -30)
+                        .padding(.top, isSearchVisible ? 0 : -30)
                         .refreshable { await loadData() }
                     }
                 }
@@ -303,12 +305,19 @@ struct SearchBar: View {
                 .autocapitalization(.none)
             if !text.isEmpty {
                 Button(action: { text = "" }) {
-                    Image(systemName: "xmark.circle.fill").foregroundColor(.secondary)
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundColor(.secondary)
+                        .padding(.trailing, 4)
                 }
+                .buttonStyle(.plain) // 避免整個 HStack 的點擊被攔截
             }
         }
         .padding(8)
         .background(Color(.secondarySystemBackground))
         .cornerRadius(10)
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
+        )
     }
 }
