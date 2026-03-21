@@ -516,6 +516,7 @@ pub async fn get_stats(State(state): State<Arc<AppState>>) -> ApiResult<(usize, 
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SwitchDbPayload {
     pub db_name: String,
 }

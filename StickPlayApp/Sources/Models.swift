@@ -96,8 +96,4 @@ struct ScanPathsPayload: Codable {
 
 struct SwitchDbPayload: Codable {
     let dbName: String
-    
-    enum CodingKeys: String, CodingKey {
-        case dbName = "db_name"
-    }
 }
