@@ -1,0 +1,342 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		14E03E4B1400DE12560F548C /* EditVideoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91324F447EE7DA6A8936BF6D /* EditVideoView.swift */; };
+		661ED32B928B72C171AD3F7B /* StickPlayApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5184FD7D359C6CEC40EED7 /* StickPlayApp.swift */; };
+		66F22635F181D8D59554304F /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDC251C3B9DD8230F8DCFAE2 /* ContentView.swift */; };
+		9F9F59EC627E65AC71A840C6 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41654E25D6242A96A6669A14 /* Models.swift */; };
+		DF384B64266754D6EA0DAB0D /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC2DBA4AE3F0CAD499D48F0B /* SettingsView.swift */; };
+		DF5A99469553B7D0D15E0C75 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 645B2A7FAAE7B7E5245BF3B2 /* Assets.xcassets */; };
+		DFA9B78EBB0D2A8522D8DB22 /* VideoCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 290C02FDB96960803572EB8B /* VideoCard.swift */; };
+		FF1CA8773B4ACF85878FF4EA /* APIService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 870EA6D1010AE579504D25DF /* APIService.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		26F71C3E5A9F3F1180BEB6A0 /* StickPlayApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = StickPlayApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		290C02FDB96960803572EB8B /* VideoCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoCard.swift; sourceTree = "<group>"; };
+		41654E25D6242A96A6669A14 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		4E5184FD7D359C6CEC40EED7 /* StickPlayApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StickPlayApp.swift; sourceTree = "<group>"; };
+		645B2A7FAAE7B7E5245BF3B2 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		870EA6D1010AE579504D25DF /* APIService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIService.swift; sourceTree = "<group>"; };
+		91324F447EE7DA6A8936BF6D /* EditVideoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditVideoView.swift; sourceTree = "<group>"; };
+		DC2DBA4AE3F0CAD499D48F0B /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		FDC251C3B9DD8230F8DCFAE2 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		039D69D20E47821F4A494DA9 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				26F71C3E5A9F3F1180BEB6A0 /* StickPlayApp.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		107CB15B20F5C3B212E02FAD = {
+			isa = PBXGroup;
+			children = (
+				A2F4AE3489B604A7E1EA9827 /* Resources */,
+				EAC71BE9E152A6F35275400E /* Sources */,
+				039D69D20E47821F4A494DA9 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		A2F4AE3489B604A7E1EA9827 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				645B2A7FAAE7B7E5245BF3B2 /* Assets.xcassets */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		EAC71BE9E152A6F35275400E /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				870EA6D1010AE579504D25DF /* APIService.swift */,
+				FDC251C3B9DD8230F8DCFAE2 /* ContentView.swift */,
+				91324F447EE7DA6A8936BF6D /* EditVideoView.swift */,
+				41654E25D6242A96A6669A14 /* Models.swift */,
+				DC2DBA4AE3F0CAD499D48F0B /* SettingsView.swift */,
+				4E5184FD7D359C6CEC40EED7 /* StickPlayApp.swift */,
+				290C02FDB96960803572EB8B /* VideoCard.swift */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		9D1A3EB9E0E1A50CA4FE49F9 /* StickPlayApp */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F8BEC7D3FBB742358F5FDE4F /* Build configuration list for PBXNativeTarget "StickPlayApp" */;
+			buildPhases = (
+				F4E776B27E871E35D9630BDD /* Sources */,
+				75FAE1B437DD9A4B277BEE1B /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = StickPlayApp;
+			packageProductDependencies = (
+			);
+			productName = StickPlayApp;
+			productReference = 26F71C3E5A9F3F1180BEB6A0 /* StickPlayApp.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		45F33C4C25029D0E7A8C23C6 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					9D1A3EB9E0E1A50CA4FE49F9 = {
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = FB006EBB7C5655207515C5F2 /* Build configuration list for PBXProject "StickPlayApp" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 107CB15B20F5C3B212E02FAD;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 039D69D20E47821F4A494DA9 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				9D1A3EB9E0E1A50CA4FE49F9 /* StickPlayApp */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		75FAE1B437DD9A4B277BEE1B /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DF5A99469553B7D0D15E0C75 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		F4E776B27E871E35D9630BDD /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				FF1CA8773B4ACF85878FF4EA /* APIService.swift in Sources */,
+				66F22635F181D8D59554304F /* ContentView.swift in Sources */,
+				14E03E4B1400DE12560F548C /* EditVideoView.swift in Sources */,
+				9F9F59EC627E65AC71A840C6 /* Models.swift in Sources */,
+				DF384B64266754D6EA0DAB0D /* SettingsView.swift in Sources */,
+				661ED32B928B72C171AD3F7B /* StickPlayApp.swift in Sources */,
+				DFA9B78EBB0D2A8522D8DB22 /* VideoCard.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		0E28528D25A8C3B98AE89A20 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = PGL77C789Q;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				LSApplicationQueriesSchemes = infuse;
+				NSAppTransportSecurity = "[\"NSAllowsArbitraryLoads\": true]";
+				PRODUCT_BUNDLE_IDENTIFIER = com.huachun.StickPlayApp;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		2C2A66041BA7EF867FA362B4 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		6CB92422A56B2DAFF19AAD47 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = PGL77C789Q;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				LSApplicationQueriesSchemes = infuse;
+				NSAppTransportSecurity = "[\"NSAllowsArbitraryLoads\": true]";
+				PRODUCT_BUNDLE_IDENTIFIER = com.huachun.StickPlayApp;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		F628336250C01519820861D4 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		F8BEC7D3FBB742358F5FDE4F /* Build configuration list for PBXNativeTarget "StickPlayApp" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0E28528D25A8C3B98AE89A20 /* Debug */,
+				6CB92422A56B2DAFF19AAD47 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		FB006EBB7C5655207515C5F2 /* Build configuration list for PBXProject "StickPlayApp" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F628336250C01519820861D4 /* Debug */,
+				2C2A66041BA7EF867FA362B4 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 45F33C4C25029D0E7A8C23C6 /* Project object */;
+}

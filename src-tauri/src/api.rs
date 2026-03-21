@@ -10,10 +10,9 @@ use std::path::{Path, PathBuf};
 use tower_http::services::ServeFile;
 use tower::ServiceExt;
 
-use crate::database::Database;
 use crate::models::{VideoEntry, VideoFilter, Library};
 use crate::parser::{update_nfo, update_nfo_full};
-use crate::scanner::{scan_library_paths, scan_single_folder};
+use crate::scanner::scan_single_folder;
 use crate::AppState;
 use notify::{Watcher, RecursiveMode};
 
@@ -517,7 +516,6 @@ pub async fn get_stats(State(state): State<Arc<AppState>>) -> ApiResult<(usize, 
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct SwitchDbPayload {
     pub db_name: String,
 }
@@ -670,13 +668,43 @@ pub async fn get_libraries(
     State(state): State<Arc<AppState>>,
 ) -> ApiResult<Vec<Library>> {
     let path = state.db.app_data_dir.join("libraries.json");
-    if !path.exists() {
-        return Ok(Json(Vec::new()));
+    println!("API: get_libraries request. Path: {:?}", path);
+    
+    let mut libs: Vec<Library> = if path.exists() {
+        match std::fs::read_to_string(&path) {
+            Ok(content) => {
+                println!("API: read libraries.json success, length: {}", content.len());
+                serde_json::from_str(&content).unwrap_or_else(|e| {
+                    println!("API: JSON Parse Error: {}", e);
+                    Vec::new()
+                })
+            },
+            Err(e) => {
+                println!("API: Error reading libraries.json: {}", e);
+                Vec::new()
+            }
+        }
+    } else {
+        println!("API: libraries.json not found at {:?}", path);
+        Vec::new()
+    };
+
+    // 如果列表為空，建立一個預設的 StickPlay 媒體庫
+    if libs.is_empty() {
+        libs.push(Library {
+            id: "default".to_string(),
+            name: "StickPlay".to_string(),
+            db_name: "stickplay".to_string(),
+            paths: vec!["/media/stickplay".to_string()],
+        });
+        // 同步存回檔案
+        let content = serde_json::to_string_pretty(&libs).map_err(map_err)?;
+        std::fs::write(path, content).map_err(map_err)?;
     }
-    let content = std::fs::read_to_string(path).map_err(map_err)?;
-    let libs = serde_json::from_str(&content).map_err(map_err)?;
+
     Ok(Json(libs))
 }
+
 
 pub async fn save_libraries(
     State(state): State<Arc<AppState>>,

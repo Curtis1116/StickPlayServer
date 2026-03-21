@@ -9,11 +9,14 @@ RUN npm run build
 # Stage 2: Build Backend
 FROM rust:1.85-bookworm AS backend-builder
 WORKDIR /app
+# 安裝編譯所需的系統依賴 (openssl-sys, sqlite3-sys 等需要)
+RUN apt-get update && apt-get install -y pkg-config libssl-dev build-essential && rm -rf /var/lib/apt/lists/*
 # 複製後端目錄
 COPY src-tauri ./src-tauri
 WORKDIR /app/src-tauri
 # 為了避免 tauri 相關路徑問題，之後我們會將 Cargo.toml 中的 tauri 移除並改為 axum
 RUN cargo build --release
+
 
 # Stage 3: Runtime
 FROM debian:bookworm-slim
@@ -24,7 +27,7 @@ WORKDIR /app
 
 # 複製編譯完成的前端與後端
 COPY --from=frontend-builder /app/dist /app/dist
-COPY --from=backend-builder /app/src-tauri/target/release/StickPlayServer /app/StickPlayServer
+COPY --from=backend-builder /app/src-tauri/target/release/StickPlayServer /app/stickplay
 
 # 建立供掛載的目錄
 RUN mkdir -p /media /config
@@ -39,4 +42,6 @@ ENV PGID=1000
 # 曝露 port 8099
 EXPOSE 8099
 
-CMD ["/app/StickPlayServer"]
+CMD ["/app/stickplay"]
+
+

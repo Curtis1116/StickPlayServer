@@ -12,7 +12,7 @@ use std::sync::Arc;
 use tokio::net::TcpListener;
 use tower_http::cors::CorsLayer;
 use tower_http::services::{ServeDir, ServeFile};
-use notify::{Watcher, RecursiveMode, Config, EventKind};
+use notify::{Watcher, Config, EventKind};
 use std::collections::HashSet;
 use tokio::sync::mpsc;
 use std::time::Duration;
@@ -20,7 +20,6 @@ use crate::database::Database;
 use crate::scanner::scan_library_paths;
 use std::sync::Mutex;
 
-use std::fs::OpenOptions;
 
 #[macro_export]
 macro_rules! app_log {

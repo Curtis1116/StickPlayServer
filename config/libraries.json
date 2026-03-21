@@ -1,0 +1,8 @@
+[
+  {
+    "id": "main",
+    "name": "StickPlay",
+    "db_name": "stickplay",
+    "paths": ["/media/stickplay"]
+  }
+]

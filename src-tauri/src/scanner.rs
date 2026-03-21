@@ -19,7 +19,12 @@ const RATIO_THRESHOLD: f64 = 0.25;
 
 /// 掃描媒體庫路徑，將結果寫入 SQLite
 pub fn scan_library_paths(db: &Database, paths: &[String]) -> Result<usize, String> {
+    if paths.is_empty() {
+        crate::app_log!("[SCAN] 掃描路徑為空，跳過。");
+        return Ok(0);
+    }
     crate::app_log!("[SCAN] 開始大批掃描, 路徑集: {:?}", paths);
+
     let mut count = 0;
 
     for root_path in paths {
