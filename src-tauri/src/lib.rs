@@ -60,30 +60,131 @@ pub async fn run() {
     });
 
     // --- Background Watcher Setup ---
-    let (tx, mut rx) = mpsc::channel(100);
+    let (tx, mut rx) = mpsc::channel::<String>(100);
     let state_for_watcher = Arc::clone(&shared_state);
     
     // Watcher thread (Consumer)
     tokio::spawn(async move {
         app_log!("Watcher: Background task (consumer) started");
-        let mut last_trigger = std::time::Instant::now();
-        let debounce_duration = Duration::from_secs(5);
 
-        while let Some(path_to_scan) = rx.recv().await {
-            // Debounce check
-            if last_trigger.elapsed() < debounce_duration {
+        loop {
+            let first_path = match rx.recv().await {
+                Some(p) => p,
+                None => break,
+            };
+
+            let process_path = |p_str: &str| -> Option<std::path::PathBuf> {
+                let path = std::path::Path::new(p_str);
+                
+                // 白名單策略：只允許已知影片副檔名觸發 Watcher
+                // 這樣可以確保裁切海報、更新 NFO 等操作不會誤觸重新整理
+                const VIDEO_EXTS: &[&str] = &["mp4", "mkv", "avi", "wmv", "mov", "ts", "flv", "rmvb"];
+                
+                let ext_opt = path.extension()
+                    .and_then(|e| e.to_str())
+                    .map(|s| s.to_lowercase());
+                
+                let is_video_ext = ext_opt.as_deref().map(|ext| VIDEO_EXTS.contains(&ext)).unwrap_or(false);
+                
+                let mut should_trigger = false;
+                
+                if is_video_ext {
+                    if path.exists() && path.is_file() {
+                        // 存在的影片：確認檔案夠大才觸發（避免空檔案或剛建立的小檔）
+                        if let Ok(meta) = std::fs::metadata(path) {
+                            if meta.len() > 300 * 1024 * 1024 {
+                                should_trigger = true;
+                            }
+                        }
+                    } else if !path.exists() {
+                        // 影片被刪除
+                        should_trigger = true;
+                    }
+                }
+                // 影像、字幕、NFO、資料夾或任何非影片副檔名（含無副檔名的暫存區塊）
+                // 一律不觸發，預設 should_trigger = false
+                
+                if should_trigger {
+                    let dir = if !path.exists() {
+                        if let Some(ext) = path.extension().and_then(|e| e.to_str()).map(|s| s.to_lowercase()) {
+                            if ["mp4", "mkv", "avi", "wmv", "mov", "ts", "flv", "rmvb"].contains(&ext.as_str()) {
+                                path.parent().unwrap_or(path).to_path_buf()
+                            } else {
+                                path.to_path_buf() 
+                            }
+                        } else {
+                            path.to_path_buf()
+                        }
+                    } else if path.is_dir() {
+                        path.to_path_buf()
+                    } else {
+                        path.parent().unwrap_or(path).to_path_buf()
+                    };
+                    Some(dir)
+                } else {
+                    None
+                }
+            };
+            
+            let mut pending_dirs = std::collections::HashSet::new();
+            if let Some(d) = process_path(&first_path) {
+                pending_dirs.insert(d);
+            }
+
+            let timeout_duration = Duration::from_secs(5);
+            let start = std::time::Instant::now();
+            
+            while let Some(remaining) = timeout_duration.checked_sub(start.elapsed()) {
+                if let Ok(Some(p)) = tokio::time::timeout(remaining, rx.recv()).await {
+                    if let Some(d) = process_path(&p) {
+                        pending_dirs.insert(d);
+                    }
+                } else {
+                    break;
+                }
+            }
+
+            if pending_dirs.is_empty() {
                 continue;
             }
             
-            // Wait a bit to ensure file operations are finished
             tokio::time::sleep(Duration::from_millis(1000)).await;
+
+            let watch_paths = state_for_watcher.watch_paths.lock().unwrap().iter().cloned().collect::<Vec<_>>();
             
-            app_log!("Watcher: Detected change in {}, triggering rescan", path_to_scan);
-            let paths = state_for_watcher.watch_paths.lock().unwrap().iter().cloned().collect::<Vec<_>>();
-            if !paths.is_empty() {
-                let _ = scan_library_paths(&state_for_watcher.db, &paths);
+            for dir_to_scan in pending_dirs {
+                let is_valid = watch_paths.iter().any(|p| dir_to_scan.starts_with(std::path::Path::new(p)));
+                if is_valid {
+                    if !dir_to_scan.exists() {
+                        app_log!("Watcher: Folder/Video deleted, removing from DB: {:?}", dir_to_scan);
+                        let conn = state_for_watcher.db.conn.lock().unwrap();
+                        let dir_str = dir_to_scan.to_string_lossy().to_string();
+                        let _ = conn.execute(
+                            "DELETE FROM videos WHERE folder_path = ?1",
+                            rusqlite::params![dir_str],
+                        );
+                    } else if dir_to_scan.is_dir() {
+                        let is_root = watch_paths.iter().any(|p| std::path::Path::new(p) == dir_to_scan.as_path());
+                        if is_root {
+                            app_log!("Watcher: Root modified, scanning all: {:?}", dir_to_scan);
+                            let _ = scan_library_paths(&state_for_watcher.db, &watch_paths);
+                        } else {
+                            app_log!("Watcher: Rescanning single folder: {:?}", dir_to_scan);
+                            if let Err(e) = crate::scanner::scan_single_folder(&state_for_watcher.db, &dir_to_scan, false) {
+                                if e == "資料夾內無影片檔" {
+                                    app_log!("Watcher: No video found in folder, removing from DB: {:?}", dir_to_scan);
+                                    let conn = state_for_watcher.db.conn.lock().unwrap();
+                                    let dir_str = dir_to_scan.to_string_lossy().to_string();
+                                    let _ = conn.execute(
+                                        "DELETE FROM videos WHERE folder_path = ?1",
+                                        rusqlite::params![dir_str],
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
             }
-            last_trigger = std::time::Instant::now();
         }
     });
 
@@ -93,7 +194,7 @@ pub async fn run() {
         if let Ok(event) = res {
             match event.kind {
                 EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_) => {
-                    if let Some(path) = event.paths.first() {
+                    for path in &event.paths {
                         let _ = tx_notify.blocking_send(path.to_string_lossy().to_string());
                     }
                 }
