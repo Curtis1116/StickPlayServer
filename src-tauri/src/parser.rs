@@ -237,9 +237,8 @@ pub fn update_nfo(
     tags.push(("criticrating".to_string(), format!("<criticrating>{}</criticrating>", synchronized_critic_rating)));
     
     if let Some(parent) = nfo_path.parent() {
-        if parent.join("poster.jpg").exists() || parent.join("stick_poster.jpg").exists() {
-             let poster_file = if parent.join("stick_poster.jpg").exists() { "stick_poster.jpg" } else { "poster.jpg" };
-             tags.push(("poster".to_string(), format!("<poster>{}</poster>", poster_file)));
+        if parent.join("poster.jpg").exists() {
+             tags.push(("poster".to_string(), "<poster>poster.jpg</poster>".to_string()));
         }
     }
 
@@ -281,9 +280,8 @@ pub fn update_nfo_full(
     tags.push(("criticrating".to_string(), format!("<criticrating>{}</criticrating>", synchronized_critic_rating)));
 
     if let Some(parent) = nfo_path.parent() {
-        if parent.join("poster.jpg").exists() || parent.join("stick_poster.jpg").exists() {
-             let poster_file = if parent.join("stick_poster.jpg").exists() { "stick_poster.jpg" } else { "poster.jpg" };
-             tags.push(("poster".to_string(), format!("<poster>{}</poster>", poster_file)));
+        if parent.join("poster.jpg").exists() {
+             tags.push(("poster".to_string(), "<poster>poster.jpg</poster>".to_string()));
         }
     }
 

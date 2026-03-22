@@ -34,7 +34,7 @@ export default function App() {
   const [favoriteCount, setFavoriteCount] = useState(0);
   const [isScanning, setIsScanning] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [, setIsModalOpen] = useState(false);
 
   const [libraries, setLibraries] = useState<Library[]>([]);
   const [activeLibraryId, setActiveLibraryId] = useState<string>("");
@@ -255,9 +255,9 @@ export default function App() {
   };
 
   // Toast 通知
-  const showToast = (msg: string) => {
+  const showToast = useCallback((msg: string) => {
     setToastMessage(msg);
-  };
+  }, []);
 
   if (page === "settings") {
     return (
@@ -303,7 +303,6 @@ export default function App() {
           onVideoUpdated={handleVideoUpdated}
           onVideoRemoved={handleVideoRemoved}
           onToast={showToast}
-          disableHover={isModalOpen}
           onModalStateChange={setIsModalOpen}
         />
       </main>

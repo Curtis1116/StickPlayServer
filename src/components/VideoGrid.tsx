@@ -10,7 +10,6 @@ interface VideoGridProps {
     onVideoUpdated: (updated: VideoEntry) => void;
     onVideoRemoved: (id: string) => void;
     onToast: (msg: string) => void;
-    disableHover: boolean;
     onModalStateChange: (open: boolean) => void;
 }
 
@@ -20,7 +19,6 @@ export default function VideoGrid({
     onVideoUpdated,
     onVideoRemoved,
     onToast,
-    disableHover,
     onModalStateChange,
 }: VideoGridProps) {
     const parentRef = useRef<HTMLDivElement>(null);
@@ -126,7 +124,6 @@ export default function VideoGrid({
                                     onVideoUpdated={onVideoUpdated}
                                     onVideoRemoved={onVideoRemoved}
                                     onToast={onToast}
-                                    disableHover={disableHover}
                                     onModalStateChange={onModalStateChange}
                                 />
                             ))}

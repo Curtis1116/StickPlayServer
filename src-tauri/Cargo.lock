@@ -3,29 +3,6 @@
 version = 4
 
 [[package]]
-name = "StickPlayServer"
-version = "1.2.0"
-dependencies = [
- "axum",
- "base64",
- "futures-util",
- "image",
- "notify",
- "open",
- "quick-xml",
- "regex",
- "rusqlite",
- "rustface",
- "serde",
- "serde_json",
- "tokio",
- "tower 0.4.13",
- "tower-http",
- "urlencoding",
- "walkdir",
-]
-
-[[package]]
 name = "adler2"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1708,6 +1685,29 @@ name = "stable_deref_trait"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
+
+[[package]]
+name = "stickplay-server"
+version = "1.2.0"
+dependencies = [
+ "axum",
+ "base64",
+ "futures-util",
+ "image",
+ "notify",
+ "open",
+ "quick-xml",
+ "regex",
+ "rusqlite",
+ "rustface",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tower 0.4.13",
+ "tower-http",
+ "urlencoding",
+ "walkdir",
+]
 
 [[package]]
 name = "syn"

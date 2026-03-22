@@ -11,7 +11,6 @@ interface VideoCardProps {
     onVideoUpdated: (updated: VideoEntry) => void;
     onVideoRemoved?: (id: string) => void;
     onToast: (msg: string) => void;
-    disableHover: boolean;
     onModalStateChange: (open: boolean) => void;
 }
 
@@ -21,7 +20,6 @@ const VideoCard = memo(({
     onVideoUpdated,
     onVideoRemoved,
     onToast,
-    disableHover,
     onModalStateChange,
 }: VideoCardProps) => {
     const [showRating, setShowRating] = useState(false);
@@ -126,7 +124,7 @@ const VideoCard = memo(({
     return (
         <div
             ref={cardRef}
-            className={`movie-card relative flex flex-col cursor-pointer ${disableHover ? "" : "group"}`}
+            className="movie-card relative flex flex-col cursor-pointer group"
         >
             <div className="relative aspect-[2/3] rounded-xl overflow-hidden shadow-xl border border-zinc-800 bg-zinc-900">
                 {posterUrl ? (

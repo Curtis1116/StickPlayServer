@@ -222,7 +222,10 @@ fn collect_images(dir: &Path) -> Vec<PathBuf> {
                 if let Some(ext) = path.extension() {
                     let ext_lower = ext.to_string_lossy().to_lowercase();
                     if IMAGE_EXTENSIONS.contains(&ext_lower.as_str()) {
-                        images.push(path);
+                        let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or_default().to_lowercase();
+                        if stem != "stick_poster" {
+                            images.push(path);
+                        }
                     }
                 }
             }
@@ -238,15 +241,7 @@ fn find_best_poster(dir: &Path, video_path: &str) -> Option<String> {
         return None;
     }
 
-    // 1. 優先尋找 stick_poster.jpg (手動裁切後的結果)
-    for img in &images {
-        let stem = img.file_stem().and_then(|s| s.to_str()).unwrap_or_default().to_lowercase();
-        if stem == "stick_poster" {
-            return Some(img.to_string_lossy().to_string());
-        }
-    }
-
-    // 2. 尋找 poster.jpg
+    // 1. 尋找 poster.jpg
     for img in &images {
         let stem = img.file_stem().and_then(|s| s.to_str()).unwrap_or_default().to_lowercase();
         if stem == "poster" {

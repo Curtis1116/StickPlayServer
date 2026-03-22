@@ -462,6 +462,12 @@ pub async fn crop_and_save_poster(
         let target_path = out_dir.join("poster.jpg");
         cropped.save(&target_path).map_err(|e| e.to_string())?;
 
+        // 刪除可能存在的 stick_poster.jpg
+        let stick_poster_path = out_dir.join("stick_poster.jpg");
+        if stick_poster_path.exists() {
+            let _ = std::fs::remove_file(&stick_poster_path);
+        }
+
         // 尋找 NFO 路徑：優先依據 video_id 從資料庫查找
         let mut nfo_path_opt = None;
         let mut video_id_final = String::new();
