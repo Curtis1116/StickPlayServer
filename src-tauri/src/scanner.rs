@@ -18,7 +18,15 @@ const POSTER_RATIO: f64 = 2.0 / 3.0;
 const RATIO_THRESHOLD: f64 = 0.25;
 
 /// 掃描媒體庫路徑，將結果寫入 SQLite
+/// 掃描期間會設定 `is_scanning` 旗標，防止 `switch_database` 在中途插隊
 pub fn scan_library_paths(db: &Database, paths: &[String]) -> Result<usize, String> {
+    db.set_scanning(true);
+    let result = scan_library_paths_inner(db, paths);
+    db.set_scanning(false);
+    result
+}
+
+fn scan_library_paths_inner(db: &Database, paths: &[String]) -> Result<usize, String> {
     if paths.is_empty() {
         crate::app_log!("[SCAN] 掃描路徑為空，跳過。");
         return Ok(0);
@@ -241,7 +249,7 @@ fn find_best_poster(dir: &Path, video_path: &str) -> Option<String> {
         return None;
     }
 
-    // 1. 尋找 poster.jpg
+    // 1. 尋找 poster.jpg（最優先）
     for img in &images {
         let stem = img.file_stem().and_then(|s| s.to_str()).unwrap_or_default().to_lowercase();
         if stem == "poster" {
@@ -249,18 +257,7 @@ fn find_best_poster(dir: &Path, video_path: &str) -> Option<String> {
         }
     }
 
-    // 3. 尋找與影片同名的圖片
-    let video_stem = Path::new(video_path).file_stem().and_then(|s| s.to_str()).map(|s| s.to_lowercase());
-    for img in &images {
-        let stem = img.file_stem().and_then(|s| s.to_str()).unwrap_or_default().to_lowercase();
-        if let Some(ref vs) = video_stem {
-            if stem == *vs {
-                return Some(img.to_string_lossy().to_string());
-            }
-        }
-    }
-
-    // 4. 退而求其次，尋找比例最合適（最靠近 2:3）的現成圖片
+    // 2. 尋找比例最合適（最靠近 2:3）且在門檻內的圖片
     let mut scored: Vec<(f64, &PathBuf)> = Vec::new();
     for img in &images {
         if let Ok(dims) = image::image_dimensions(img) {
@@ -277,6 +274,17 @@ fn find_best_poster(dir: &Path, video_path: &str) -> Option<String> {
         }
     }
 
-    // 5. 若無合適比例，直接回傳第一張圖片作為 fallback
+    // 3. 最後退而求其次，尋找與影片同名的圖片
+    let video_stem = Path::new(video_path).file_stem().and_then(|s| s.to_str()).map(|s| s.to_lowercase());
+    for img in &images {
+        let stem = img.file_stem().and_then(|s| s.to_str()).unwrap_or_default().to_lowercase();
+        if let Some(ref vs) = video_stem {
+            if stem == *vs {
+                return Some(img.to_string_lossy().to_string());
+            }
+        }
+    }
+
+    // 4. 最終 fallback：直接回傳第一張圖片
     images.get(0).map(|p| p.to_string_lossy().to_string())
 }

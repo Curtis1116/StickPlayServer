@@ -1,6 +1,7 @@
 use rusqlite::{params, Connection, Result as SqlResult};
 use std::path::PathBuf;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::models::{VideoEntry, VideoFilter};
 
@@ -8,6 +9,8 @@ use crate::models::{VideoEntry, VideoFilter};
 pub struct Database {
     pub conn: Mutex<Connection>,
     pub app_data_dir: PathBuf,
+    /// 掃描中旗標：防止掃描進行中切換資料庫導致索引寫入錯誤資料庫
+    is_scanning: AtomicBool,
 }
 
 impl Database {
@@ -20,6 +23,7 @@ impl Database {
         Ok(Self {
             conn: Mutex::new(conn),
             app_data_dir,
+            is_scanning: AtomicBool::new(false),
         })
     }
 
@@ -78,11 +82,28 @@ impl Database {
     }
 
     /// 切換使用中的資料庫檔案（供多媒體庫功能使用）
+    /// 若目前正在掃描媒體庫，則拒絕切換以避免索引寫入錯誤資料庫
     pub fn switch_database(&self, db_name: &str) -> SqlResult<()> {
+        if self.is_scanning.load(Ordering::SeqCst) {
+            return Err(rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_BUSY),
+                Some("媒體庫正在掃描中，請等待掃描完成後再切換".to_string()),
+            ));
+        }
         let new_conn = Self::create_connection(&self.app_data_dir, db_name)?;
         let mut conn_guard = self.conn.lock().unwrap();
         *conn_guard = new_conn;
         Ok(())
+    }
+
+    /// 設定掃描旗標（由 scanner 呼叫）
+    pub fn set_scanning(&self, scanning: bool) {
+        self.is_scanning.store(scanning, Ordering::SeqCst);
+    }
+
+    /// 回傳目前是否正在掃描
+    pub fn is_scanning(&self) -> bool {
+        self.is_scanning.load(Ordering::SeqCst)
     }
 
     /// 插入或更新影片記錄
