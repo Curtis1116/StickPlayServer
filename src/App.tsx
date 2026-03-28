@@ -208,15 +208,21 @@ export default function App() {
 
   // 切換媒體庫
   const handleLibraryChange = async (id: string) => {
-    setActiveLibraryId(id);
     const lib = libraries.find(l => l.id === id);
     if (lib) {
       try {
+        // 先確保後端切換成功
         await switchDatabase(lib.db_name);
         localStorage.setItem("stickplay_active_library_id", JSON.stringify(id));
-
-        await loadMeta();
-        // filter 改變或 activeLibraryId 改變會自動觸發 loadVideos
+        
+        // 更新狀態
+        setActiveLibraryId(id);
+        
+        // 顯式重新載入資料，確保抓到的是新資料庫內容
+        await Promise.all([
+          loadMeta(),
+          loadVideos()
+        ]);
       } catch (e) {
         showToast(`切換媒體庫失敗: ${e}`);
       }
