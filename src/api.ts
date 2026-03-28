@@ -141,6 +141,21 @@ export async function syncWatchPaths(paths: string[]): Promise<void> {
     return post<void>("sync_watch_paths", { paths });
 }
 
+/// 訂閱 SSE 即時通知（媒體庫變更時自動觸發 onUpdate）
+export function subscribeToEvents(onUpdate: () => void): () => void {
+    const es = new EventSource('/api/events');
+    es.onmessage = (e) => {
+        if (e.data === 'library_updated') {
+            console.log('[SSE] 收到媒體庫更新通知');
+            onUpdate();
+        }
+    };
+    es.onerror = () => {
+        console.warn('[SSE] 連線中斷，將自動重連');
+    };
+    return () => es.close();
+}
+
 /// 取得伺服器儲存的媒體庫清單
 export async function getLibraries(): Promise<any[]> {
     return post<any[]>("get_libraries", {});

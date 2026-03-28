@@ -12,12 +12,9 @@ use std::sync::Arc;
 use tokio::net::TcpListener;
 use tower_http::cors::CorsLayer;
 use tower_http::services::{ServeDir, ServeFile};
-use notify::{Watcher, Config, EventKind};
 use std::collections::HashSet;
-use tokio::sync::mpsc;
 use std::time::Duration;
 use crate::database::Database;
-use crate::scanner::scan_library_paths;
 use std::sync::Mutex;
 
 
@@ -30,7 +27,33 @@ macro_rules! app_log {
         let log_path = std::path::Path::new(&app_data_dir).join("stickplay_server.log");
         if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(&log_path) {
             use std::io::Write;
-            let _ = writeln!(file, "{}", msg);
+            // 產生 ISO 8601 格式的本地時間戳記
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default();
+            let secs = now.as_secs();
+            // 簡易 UTC 時間格式化（不依賴外部套件）
+            let (y, mo, d, h, mi, s) = {
+                let mut t = secs;
+                let ss = t % 60; t /= 60;
+                let mm = t % 60; t /= 60;
+                let hh = t % 24; t /= 24;
+                // 自 1970-01-01 起算日期
+                let mut days = t;
+                let mut year = 1970u64;
+                loop {
+                    let dy = if year % 400 == 0 || (year % 4 == 0 && year % 100 != 0) { 366 } else { 365 };
+                    if days < dy { break; }
+                    days -= dy; year += 1;
+                }
+                let is_leap = year % 400 == 0 || (year % 4 == 0 && year % 100 != 0);
+                let months = [31u64,if is_leap{29}else{28},31,30,31,30,31,31,30,31,30,31];
+                let mut month = 0usize;
+                for &m in &months { if days < m { break; } days -= m; month += 1; }
+                (year, month + 1, days + 1, hh, mm, ss)
+            };
+            let timestamp = format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z", y, mo, d, h, mi, s);
+            let _ = writeln!(file, "[{}] {}", timestamp, msg);
         }
     }};
 }
@@ -38,7 +61,7 @@ macro_rules! app_log {
 pub struct AppState {
     pub db: Database,
     pub watch_paths: Mutex<HashSet<String>>,
-    pub watcher: Mutex<Option<notify::RecommendedWatcher>>,
+    pub event_tx: tokio::sync::broadcast::Sender<String>,
 }
 
 pub async fn run() {
@@ -53,161 +76,140 @@ pub async fn run() {
     let db = Database::new(config_path.clone()).expect("資料庫初始化失敗");
     app_log!("[INIT] 資料庫初始化完成！");
 
+    let (event_tx, _) = tokio::sync::broadcast::channel::<String>(16);
+
     let shared_state = Arc::new(AppState {
         db,
         watch_paths: Mutex::new(HashSet::new()),
-        watcher: Mutex::new(None),
+        event_tx: event_tx.clone(),
     });
 
-    // --- Background Watcher Setup ---
-    let (tx, mut rx) = mpsc::channel::<String>(100);
-    let state_for_watcher = Arc::clone(&shared_state);
-    
-    // Watcher thread (Consumer)
+    // --- 輕量級目錄輪詢任務 ---
+    // 取代 inotify（在 Docker volume mount 環境下無效）
+    // 每 30 秒只做 readdir() 比對頂層目錄，I/O 負擔極低
+    let poll_state = Arc::clone(&shared_state);
     tokio::spawn(async move {
-        app_log!("Watcher: Background task (consumer) started");
+        app_log!("[POLL] 目錄輪詢任務已啟動（間隔 30 秒）");
+
+        const VIDEO_EXTS: &[&str] = &["mp4", "mkv", "avi", "wmv", "mov", "ts", "flv", "rmvb"];
+        const MIN_VIDEO_SIZE: u64 = 300 * 1024 * 1024; // 300MB
+
+        // 記錄已知的資料夾集合（用於比對新增/刪除）
+        let mut known_dirs: HashSet<String> = HashSet::new();
+        // 首次啟動時先等待 sync_watch_paths 被前端呼叫
+        let mut initialized = false;
 
         loop {
-            let first_path = match rx.recv().await {
-                Some(p) => p,
-                None => break,
+            tokio::time::sleep(Duration::from_secs(30)).await;
+
+            let watch_paths: Vec<String> = match poll_state.watch_paths.lock() {
+                Ok(guard) => guard.iter().cloned().collect(),
+                Err(poisoned) => poisoned.into_inner().iter().cloned().collect(),
             };
-
-            let process_path = |p_str: &str| -> Option<std::path::PathBuf> {
-                let path = std::path::Path::new(p_str);
-                
-                // 白名單策略：只允許已知影片副檔名觸發 Watcher
-                // 這樣可以確保裁切海報、更新 NFO 等操作不會誤觸重新整理
-                const VIDEO_EXTS: &[&str] = &["mp4", "mkv", "avi", "wmv", "mov", "ts", "flv", "rmvb"];
-                
-                let ext_opt = path.extension()
-                    .and_then(|e| e.to_str())
-                    .map(|s| s.to_lowercase());
-                
-                let is_video_ext = ext_opt.as_deref().map(|ext| VIDEO_EXTS.contains(&ext)).unwrap_or(false);
-                
-                let mut should_trigger = false;
-                
-                if is_video_ext {
-                    if path.exists() && path.is_file() {
-                        // 存在的影片：確認檔案夠大才觸發（避免空檔案或剛建立的小檔）
-                        if let Ok(meta) = std::fs::metadata(path) {
-                            if meta.len() > 300 * 1024 * 1024 {
-                                should_trigger = true;
-                            }
-                        }
-                    } else if !path.exists() {
-                        // 影片被刪除
-                        should_trigger = true;
-                    }
-                }
-                // 影像、字幕、NFO、資料夾或任何非影片副檔名（含無副檔名的暫存區塊）
-                // 一律不觸發，預設 should_trigger = false
-                
-                if should_trigger {
-                    let dir = if !path.exists() {
-                        if let Some(ext) = path.extension().and_then(|e| e.to_str()).map(|s| s.to_lowercase()) {
-                            if ["mp4", "mkv", "avi", "wmv", "mov", "ts", "flv", "rmvb"].contains(&ext.as_str()) {
-                                path.parent().unwrap_or(path).to_path_buf()
-                            } else {
-                                path.to_path_buf() 
-                            }
-                        } else {
-                            path.to_path_buf()
-                        }
-                    } else if path.is_dir() {
-                        path.to_path_buf()
-                    } else {
-                        path.parent().unwrap_or(path).to_path_buf()
-                    };
-                    Some(dir)
-                } else {
-                    None
-                }
-            };
-            
-            let mut pending_dirs = std::collections::HashSet::new();
-            if let Some(d) = process_path(&first_path) {
-                pending_dirs.insert(d);
-            }
-
-            let timeout_duration = Duration::from_secs(5);
-            let start = std::time::Instant::now();
-            
-            while let Some(remaining) = timeout_duration.checked_sub(start.elapsed()) {
-                if let Ok(Some(p)) = tokio::time::timeout(remaining, rx.recv()).await {
-                    if let Some(d) = process_path(&p) {
-                        pending_dirs.insert(d);
-                    }
-                } else {
-                    break;
-                }
-            }
-
-            if pending_dirs.is_empty() {
+            if watch_paths.is_empty() {
                 continue;
             }
-            
-            tokio::time::sleep(Duration::from_millis(1000)).await;
 
-            let watch_paths = state_for_watcher.watch_paths.lock().unwrap().iter().cloned().collect::<Vec<_>>();
-            
-            for dir_to_scan in pending_dirs {
-                let is_valid = watch_paths.iter().any(|p| dir_to_scan.starts_with(std::path::Path::new(p)));
-                if is_valid {
-                    if !dir_to_scan.exists() {
-                        app_log!("Watcher: Folder/Video deleted, removing from DB: {:?}", dir_to_scan);
-                        let conn = state_for_watcher.db.conn.lock().unwrap();
-                        let dir_str = dir_to_scan.to_string_lossy().to_string();
-                        let _ = conn.execute(
-                            "DELETE FROM videos WHERE folder_path = ?1",
-                            rusqlite::params![dir_str],
-                        );
-                    } else if dir_to_scan.is_dir() {
-                        let is_root = watch_paths.iter().any(|p| std::path::Path::new(p) == dir_to_scan.as_path());
-                        if is_root {
-                            app_log!("Watcher: Root modified, scanning all: {:?}", dir_to_scan);
-                            let _ = scan_library_paths(&state_for_watcher.db, &watch_paths);
-                        } else {
-                            app_log!("Watcher: Rescanning single folder: {:?}", dir_to_scan);
-                            if let Err(e) = crate::scanner::scan_single_folder(&state_for_watcher.db, &dir_to_scan, false) {
-                                if e == "資料夾內無影片檔" {
-                                    app_log!("Watcher: No video found in folder, removing from DB: {:?}", dir_to_scan);
-                                    let conn = state_for_watcher.db.conn.lock().unwrap();
-                                    let dir_str = dir_to_scan.to_string_lossy().to_string();
-                                    let _ = conn.execute(
-                                        "DELETE FROM videos WHERE folder_path = ?1",
-                                        rusqlite::params![dir_str],
-                                    );
-                                }
+            // 首次有 watch_paths 時，從 DB 載入已知的資料夾
+            if !initialized {
+                if let Ok(conn) = poll_state.db.conn.lock() {
+                    if let Ok(mut stmt) = conn.prepare("SELECT DISTINCT folder_path FROM videos") {
+                        if let Ok(rows) = stmt.query_map([], |row| row.get::<_, String>(0)) {
+                            for row in rows.flatten() {
+                                known_dirs.insert(row);
                             }
                         }
                     }
                 }
+                app_log!("[POLL] 已從 DB 載入 {} 個已知資料夾", known_dirs.len());
+                initialized = true;
             }
-        }
-    });
 
-    // Producer (Notify Adapter)
-    let tx_notify = tx.clone();
-    let watcher = notify::RecommendedWatcher::new(move |res: notify::Result<notify::Event>| {
-        if let Ok(event) = res {
-            match event.kind {
-                EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_) => {
-                    for path in &event.paths {
-                        let _ = tx_notify.blocking_send(path.to_string_lossy().to_string());
+            // 掃描各監控根目錄下的子資料夾
+            let mut current_dirs: HashSet<String> = HashSet::new();
+            for root in &watch_paths {
+                let root_path = std::path::Path::new(root);
+                if !root_path.exists() || !root_path.is_dir() {
+                    continue;
+                }
+                if let Ok(entries) = std::fs::read_dir(root_path) {
+                    for entry in entries.flatten() {
+                        if entry.path().is_dir() {
+                            current_dirs.insert(entry.path().to_string_lossy().to_string());
+                        }
                     }
                 }
-                _ => {}
             }
-        }
-    }, Config::default()).expect("無法建立檔案監視器");
 
-    // Store watcher in state
-    {
-        let mut w_guard = shared_state.watcher.lock().unwrap();
-        *w_guard = Some(watcher);
-    }
+            // 偵測新增的資料夾
+            let added: Vec<String> = current_dirs.difference(&known_dirs).cloned().collect();
+            // 偵測刪除的資料夾
+            let removed: Vec<String> = known_dirs.difference(&current_dirs)
+                .filter(|d| {
+                    // 只處理屬於當前 watch_paths 下的資料夾
+                    watch_paths.iter().any(|wp| d.starts_with(wp))
+                })
+                .cloned()
+                .collect();
+
+            let mut changed = false;
+
+            // 處理新增
+            for dir in &added {
+                let dir_path = std::path::Path::new(dir);
+
+                // 檢查是否含有 >300MB 的影片檔
+                let has_large_video = std::fs::read_dir(dir_path)
+                    .map(|entries| {
+                        entries.flatten().any(|e| {
+                            let p = e.path();
+                            if !p.is_file() { return false; }
+                            let is_video = p.extension()
+                                .and_then(|ext| ext.to_str())
+                                .map(|ext| VIDEO_EXTS.contains(&ext.to_lowercase().as_str()))
+                                .unwrap_or(false);
+                            if !is_video { return false; }
+                            p.metadata().map(|m| m.len() > MIN_VIDEO_SIZE).unwrap_or(false)
+                        })
+                    })
+                    .unwrap_or(false);
+
+                if has_large_video {
+                    app_log!("[POLL] 偵測到新資料夾（含 >300MB 影片）: {}", dir);
+                    // 使用 spawn_blocking + catch_unwind 防止圖片處理 panic 導致伺服器崩潰
+                    let db_ref = &poll_state.db;
+                    let scan_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        crate::scanner::scan_single_folder(db_ref, dir_path, false)
+                    }));
+                    match scan_result {
+                        Ok(Ok(())) => { changed = true; }
+                        Ok(Err(e)) => { app_log!("[POLL] 掃描失敗: {}", e); }
+                        Err(_) => { app_log!("[POLL] 掃描時發生 panic（已攔截），路徑: {}", dir); }
+                    }
+                }
+            }
+
+            // 處理刪除
+            for dir in &removed {
+                app_log!("[POLL] 偵測到資料夾移除: {}", dir);
+                if let Ok(conn) = poll_state.db.conn.lock() {
+                    let _ = conn.execute(
+                        "DELETE FROM videos WHERE folder_path = ?1",
+                        rusqlite::params![dir],
+                    );
+                }
+                changed = true;
+            }
+
+            if changed {
+                app_log!("[POLL] 媒體庫已變更，通知前端更新");
+                let _ = poll_state.event_tx.send("library_updated".to_string());
+            }
+
+            // 更新已知資料夾集合
+            known_dirs = current_dirs;
+        }
+    });
 
     let frontend_dir = std::env::var("STICKPLAY_FRONTEND_DIR").unwrap_or_else(|_| "../dist".to_string());
 
@@ -216,6 +218,7 @@ pub async fn run() {
     let app = Router::new()
         .route("/api/scan_library", post(api::scan_library))
         .route("/api/sync_watch_paths", post(api::sync_watch_paths))
+        .route("/api/events", get(api::events))
         .route("/api/rescan_single_video", post(api::rescan_single_video))
         .route("/api/query_videos", post(api::query_videos))
         .route("/api/update_video_info", post(api::update_video_info))

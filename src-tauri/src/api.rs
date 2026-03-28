@@ -1,7 +1,7 @@
 use axum::{
     extract::{Query, Request, State},
     http::StatusCode,
-    response::IntoResponse,
+    response::{IntoResponse, Sse, sse::Event},
     Json,
 };
 use serde::{Deserialize, Serialize};
@@ -9,12 +9,12 @@ use std::sync::Arc;
 use std::path::{Path, PathBuf};
 use tower_http::services::ServeFile;
 use tower::ServiceExt;
+use futures_util::stream::Stream;
 
 use crate::models::{VideoEntry, VideoFilter, Library};
 use crate::parser::{update_nfo, update_nfo_full};
 use crate::scanner::scan_single_folder;
 use crate::AppState;
-use notify::{Watcher, RecursiveMode};
 
 type ApiError = (StatusCode, String);
 type ApiResult<T> = Result<Json<T>, ApiError>;
@@ -42,29 +42,41 @@ pub async fn sync_watch_paths(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<ScanPathsPayload>,
 ) -> ApiResult<()> {
-    println!("API: sync_watch_paths: {:?}", payload.paths);
+    crate::app_log!("API: sync_watch_paths: {:?}", payload.paths);
     
     let mut watch_paths = state.watch_paths.lock().unwrap();
-    let mut watcher = state.watcher.lock().unwrap();
-    
-    if let Some(ref mut w) = *watcher {
-        // Unwatch old paths
-        for p in watch_paths.iter() {
-            let _ = w.unwatch(Path::new(p));
-        }
-        
-        // Clear and add new paths
-        watch_paths.clear();
-        for p in payload.paths {
-            if !p.is_empty() {
-                if let Ok(_) = w.watch(Path::new(&p), RecursiveMode::Recursive) {
-                    watch_paths.insert(p.clone());
-                }
-            }
+    watch_paths.clear();
+    for p in payload.paths {
+        if !p.is_empty() {
+            watch_paths.insert(p);
         }
     }
     
     Ok(Json(()))
+}
+
+/// SSE endpoint：讓前端即時收到媒體庫變更通知
+pub async fn events(
+    State(state): State<Arc<AppState>>,
+) -> Sse<impl Stream<Item = Result<Event, std::convert::Infallible>>> {
+    let mut rx = state.event_tx.subscribe();
+
+    let stream = async_stream::stream! {
+        loop {
+            match rx.recv().await {
+                Ok(msg) => {
+                    yield Ok(Event::default().data(msg));
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                    // 跳過遺失的訊息，繼續接收
+                    continue;
+                }
+                Err(_) => break,
+            }
+        }
+    };
+
+    Sse::new(stream)
 }
 
 #[derive(Deserialize)]

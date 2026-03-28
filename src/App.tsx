@@ -16,6 +16,7 @@ import {
   scanLibrary,
   switchDatabase,
   syncWatchPaths,
+  subscribeToEvents,
 } from "./api";
 import { Library } from "./types";
 
@@ -153,6 +154,15 @@ export default function App() {
     loadSettingsAndData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // 訂閱 SSE 即時事件：偵測到媒體庫變化時自動重新載入
+  useEffect(() => {
+    const cleanup = subscribeToEvents(() => {
+      loadVideos();
+      loadMeta();
+    });
+    return cleanup;
+  }, [loadVideos, loadMeta]);
 
   // 掃描媒體庫
   const handleScan = async () => {
