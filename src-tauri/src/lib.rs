@@ -62,6 +62,7 @@ pub struct AppState {
     pub db: Database,
     pub watch_paths: Mutex<HashSet<String>>,
     pub event_tx: tokio::sync::broadcast::Sender<String>,
+    pub db_switch_count: std::sync::atomic::AtomicUsize,
 }
 
 pub async fn run() {
@@ -82,6 +83,7 @@ pub async fn run() {
         db,
         watch_paths: Mutex::new(HashSet::new()),
         event_tx: event_tx.clone(),
+        db_switch_count: std::sync::atomic::AtomicUsize::new(0),
     });
 
     // --- 輕量級目錄輪詢任務 ---
@@ -98,9 +100,19 @@ pub async fn run() {
         let mut known_dirs: HashSet<String> = HashSet::new();
         // 首次啟動時先等待 sync_watch_paths 被前端呼叫
         let mut initialized = false;
+        let mut last_db_switch = 0;
 
         loop {
             tokio::time::sleep(Duration::from_secs(30)).await;
+
+            // 檢查資料庫是否已切換
+            let current_db_switch = poll_state.db_switch_count.load(std::sync::atomic::Ordering::SeqCst);
+            if current_db_switch != last_db_switch {
+                app_log!("[POLL] 偵測到資料庫切換，重設已知目錄清單");
+                known_dirs.clear();
+                initialized = false;
+                last_db_switch = current_db_switch;
+            }
 
             let watch_paths: Vec<String> = match poll_state.watch_paths.lock() {
                 Ok(guard) => guard.iter().cloned().collect(),

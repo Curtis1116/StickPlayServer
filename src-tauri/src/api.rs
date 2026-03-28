@@ -579,7 +579,9 @@ pub async fn switch_database(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<SwitchDbPayload>,
 ) -> ApiResult<()> {
-    state.db.switch_database(&payload.db_name).map(Json).map_err(map_err)
+    state.db.switch_database(&payload.db_name).map_err(map_err)?;
+    state.db_switch_count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    Ok(Json(()))
 }
 
 #[derive(Deserialize)]
