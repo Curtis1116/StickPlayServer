@@ -98,3 +98,32 @@ struct ScanPathsPayload: Codable {
 struct SwitchDbPayload: Codable {
     let dbName: String
 }
+
+// MARK: - Directory Browsing
+struct DirEntry: Codable, Identifiable {
+    var id: String { path }
+    let name: String
+    let path: String
+    let isDir: Bool
+    
+    enum CodingKeys: String, CodingKey {
+        case name, path
+        case isDir = "is_dir"
+    }
+}
+
+struct ListDirsPayload: Codable {
+    let path: String?
+}
+
+struct MoveFolderPayload: Codable {
+    let videoId: String
+    let currentFolderPath: String
+    let targetParentFolder: String
+    
+    enum CodingKeys: String, CodingKey {
+        case videoId = "video_id"
+        case currentFolderPath = "current_folder_path"
+        case targetParentFolder = "target_parent_folder"
+    }
+}

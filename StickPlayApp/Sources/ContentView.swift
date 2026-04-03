@@ -21,6 +21,7 @@ struct ContentView: View {
     @State private var showingSettings = false
     @State private var editingVideo: VideoEntry?
     @State private var showingInfuseAlert = false
+    @State private var isScanning = false
     
     private let api = APIService.shared
     
@@ -78,7 +79,9 @@ struct ContentView: View {
                                         video: video,
                                         onPlay: { playVideo(video: video) },
                                         onEdit: { editingVideo = video },
-                                        onRescan: { rescanVideo(video: video) }
+                                        onRescan: { rescanVideo(video: video) },
+                                        onUpdate: { reloadData() },
+                                        onDelete: { reloadData() }
                                     )
                                 }
                             }
@@ -102,7 +105,7 @@ struct ContentView: View {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     HStack(spacing: 14) {
                         Button(action: { withAnimation { isSearchVisible.toggle() } }) {
-                            Image(systemName: "magnifyingglass.circle")
+                            Image(systemName: isSearchVisible ? "magnifyingglass.circle.fill" : "magnifyingglass")
                         }
                         
                         Menu {
@@ -120,7 +123,7 @@ struct ContentView: View {
                             }
                         } label: {
                             HStack(spacing: 2) {
-                                Image(systemName: "server.rack")
+                                Image(systemName: "folder")
                                 if !libraries.isEmpty {
                                     Text("\(libraries.count)").font(.caption2)
                                 }
@@ -128,7 +131,9 @@ struct ContentView: View {
                         }
                         
                         Button(action: { scanAll() }) {
-                            Image(systemName: "arrow.clockwise.icloud")
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                                .rotationEffect(Angle(degrees: isScanning ? 360 : 0))
+                                .animation(isScanning ? Animation.linear(duration: 1).repeatForever(autoreverses: false) : .default, value: isScanning)
                         }
                         
                         Menu {
@@ -141,7 +146,7 @@ struct ContentView: View {
                                 }
                             }
                         } label: {
-                            Image(systemName: (favoritesOnly || uncensoredOnly) ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                            Image(systemName: (favoritesOnly || uncensoredOnly) ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease")
                         }
 
                         Menu {
@@ -158,7 +163,7 @@ struct ContentView: View {
                         }
                         
                         Button(action: { showingSettings = true }) {
-                            Image(systemName: "gearshape.fill")
+                            Image(systemName: "gearshape")
                         }
                     }
                 }
@@ -249,11 +254,18 @@ struct ContentView: View {
     private func scanAll() {
         guard let currentLib = libraries.first(where: { $0.name == currentLibrary }) else { return }
         Task {
+            await MainActor.run { isScanning = true }
             do {
                 _ = try await api.scanLibrary(paths: currentLib.paths)
-                reloadData()
+                await MainActor.run {
+                    isScanning = false
+                    reloadData()
+                }
             } catch {
-                await MainActor.run { self.errorMessage = "Scan failed: \(error.localizedDescription)" }
+                await MainActor.run { 
+                    self.errorMessage = "Scan failed: \(error.localizedDescription)" 
+                    self.isScanning = false
+                }
             }
         }
     }

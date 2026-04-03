@@ -444,24 +444,32 @@ impl Database {
             let f_path = std::path::Path::new(&folder_path);
             let v_path = std::path::Path::new(&video_path);
 
-            // 【修復】檢查影片實體檔案是否還存在於檔案系統
-            let mut keep = v_path.exists();
-            if !keep {
-                println!("DEBUG: Pruning because v_path.exists() is false: {:?}", v_path);
+            let mut belonging_lib_online = false;
+            let mut in_library = false;
+
+            for lib_path in valid_library_paths {
+                if f_path.starts_with(lib_path) {
+                    in_library = true;
+                    if std::path::Path::new(lib_path).exists() {
+                        belonging_lib_online = true;
+                    }
+                    break;
+                }
             }
 
-            // 檢查資料夾是否屬於目前設定的媒體庫路徑之一
-            if keep {
-                let mut in_library = false;
-                for lib_path in valid_library_paths {
-                    if f_path.starts_with(lib_path) {
-                        in_library = true;
-                        break;
-                    }
-                }
-                if !in_library {
+            let mut keep = true;
+            if !in_library {
+                // 不屬於任何有設定的媒體庫路徑，應該刪除
+                keep = false;
+            } else if belonging_lib_online {
+                // 媒體庫有掛載（在線），我們這才進行實體檔案檢查
+                if !v_path.exists() {
                     keep = false;
+                    println!("DEBUG: Pruning because v_path.exists() is false: {:?}", v_path);
                 }
+            } else {
+                // 媒體庫沒掛載/不存在（外接硬碟拔除了），我們*保留*這個紀錄，不刪除
+                keep = true;
             }
 
             if !keep {

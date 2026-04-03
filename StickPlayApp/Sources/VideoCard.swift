@@ -5,10 +5,13 @@ struct VideoCard: View {
     let onPlay: () -> Void
     let onEdit: () -> Void
     let onRescan: () -> Void
+    let onUpdate: () -> Void
+    let onDelete: () -> Void
     
     @State private var posterImage: UIImage?
     @State private var hasFailedToLoadImage = false
     @State private var debugMessage: String = ""
+    @State private var showingMoveSheet = false
     
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -97,9 +100,19 @@ struct VideoCard: View {
             Button(action: onRescan) {
                 Label("重整此影片", systemImage: "arrow.clockwise")
             }
+            Button(action: { showingMoveSheet = true }) {
+                Label("搬移資料夾", systemImage: "folder.badge.gearshape")
+            }
             Button(action: onEdit) {
                 Label("編輯資訊", systemImage: "pencil")
             }
+        }
+        .sheet(isPresented: $showingMoveSheet) {
+            MoveFolderView(
+                video: video,
+                onSaved: { _ in onUpdate() },
+                onRemoved: { _ in onDelete() }
+            )
         }
         .task(id: video.id) {
             await loadPoster()

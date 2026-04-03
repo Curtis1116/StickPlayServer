@@ -16,6 +16,7 @@ struct EditVideoView: View {
     
     @State private var isSaving = false
     @State private var errorMsg: String?
+    @State private var showingMoveSheet = false
     
     init(video: VideoEntry, onSave: @escaping () async -> Void) {
         self.video = video
@@ -139,7 +140,6 @@ struct EditVideoView: View {
                             .tint(isUncensored ? .red : .gray)
                         }
                     }
-                    
                     // Details Form Blocks
                     GroupBox {
                         VStack(spacing: 16) {
@@ -187,6 +187,49 @@ struct EditVideoView: View {
                                     .textFieldStyle(RoundedBorderTextFieldStyle())
                             }
                         }
+                    }
+                    
+                    // Folder Management Section
+                    GroupBox {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("資料夾管理")
+                                    .font(.system(size: 14, weight: .bold))
+                                    .foregroundColor(.secondary)
+                                Text(video.folderPath)
+                                    .font(.system(size: 10, design: .monospaced))
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(1)
+                            }
+                            
+                            Spacer()
+                            
+                            Button(action: { showingMoveSheet = true }) {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "folder.badge.gearshape")
+                                    Text("搬移")
+                                }
+                                .font(.system(size: 12, weight: .bold))
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(Color.indigo.opacity(0.1))
+                                .foregroundColor(.indigo)
+                                .cornerRadius(8)
+                            }
+                        }
+                    }
+                    .sheet(isPresented: $showingMoveSheet) {
+                        MoveFolderView(
+                            video: video,
+                            onSaved: { _ in 
+                                Task { await onSave() }
+                                dismiss()
+                            },
+                            onRemoved: { _ in 
+                                Task { await onSave() }
+                                dismiss()
+                            }
+                        )
                     }
                     
                     if let errorMsg = errorMsg {

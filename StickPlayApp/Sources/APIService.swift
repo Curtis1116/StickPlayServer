@@ -202,6 +202,20 @@ class APIService: ObservableObject {
         return try JSONDecoder().decode(Int.self, from: data)
     }
     
+    func syncWatchPaths(paths: [String]) async throws {
+        guard let url = URL(string: "\(baseURL)/api/sync_watch_paths") else { throw URLError(.badURL) }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(ScanPathsPayload(paths: paths))
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        if let httpRes = response as? HTTPURLResponse, httpRes.statusCode != 200 {
+            let serverMsg = String(data: data, encoding: .utf8) ?? "Unknown error"
+            throw NSError(domain: "APIService", code: httpRes.statusCode, userInfo: [NSLocalizedDescriptionKey: "Server [\(httpRes.statusCode)]: \(serverMsg)"])
+        }
+    }
+    
     func rescanVideo(folderPath: String) async throws -> VideoEntry {
         guard let url = URL(string: "\(baseURL)/api/rescan_single_video") else { throw URLError(.badURL) }
         var request = URLRequest(url: url)
@@ -209,6 +223,43 @@ class APIService: ObservableObject {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(RescanPayload(folderPath: folderPath))
         let (data, _) = try await URLSession.shared.data(for: request)
+        return try JSONDecoder().decode(VideoEntry.self, from: data)
+    }
+    
+    func listDirs(path: String?) async throws -> [DirEntry] {
+        guard let url = URL(string: "\(baseURL)/api/list_dirs") else { throw URLError(.badURL) }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(ListDirsPayload(path: path))
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        if let httpRes = response as? HTTPURLResponse, httpRes.statusCode != 200 {
+            let serverMsg = String(data: data, encoding: .utf8) ?? "Unknown error"
+            print("LIST_DIRS Error [\(httpRes.statusCode)]: \(serverMsg)")
+            throw URLError(.badServerResponse)
+        }
+        
+        do {
+            return try JSONDecoder().decode([DirEntry].self, from: data)
+        } catch {
+            print("DECODE ERROR IN LIST_DIRS: \(error)")
+            throw error
+        }
+    }
+    
+    func moveVideoFolder(payload: MoveFolderPayload) async throws -> VideoEntry {
+        guard let url = URL(string: "\(baseURL)/api/move_video_folder") else { throw URLError(.badURL) }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(payload)
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        if let httpRes = response as? HTTPURLResponse, httpRes.statusCode != 200 {
+            let msg = String(data: data, encoding: .utf8) ?? "搬移失敗"
+            throw NSError(domain: "APIService", code: httpRes.statusCode, userInfo: [NSLocalizedDescriptionKey: msg])
+        }
         return try JSONDecoder().decode(VideoEntry.self, from: data)
     }
 
