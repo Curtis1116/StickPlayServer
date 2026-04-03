@@ -247,6 +247,7 @@ pub async fn run() {
         .route("/api/save_libraries", post(api::save_libraries))
         .route("/api/get_folder_images", post(api::get_folder_images))
         .route("/api/crop_and_save_poster", post(api::crop_and_save_poster))
+        .route("/api/move_video_folder", post(api::move_video_folder))
         .route("/api/video", get(api::serve_video_file))
         .route("/api/image", get(api::serve_image_file))
         .fallback_service(ServeDir::new(&frontend_dir).fallback(ServeFile::new(format!("{}/index.html", frontend_dir))))

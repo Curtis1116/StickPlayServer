@@ -191,3 +191,17 @@ export async function cropAndSavePoster(
         videoId,
     });
 }
+
+/// 搬移影片資料夾
+export async function moveVideoFolder(
+    videoId: string,
+    currentFolderPath: string,
+    targetParentFolder: string
+): Promise<VideoEntry> {
+    return post<VideoEntry>("move_video_folder", {
+        videoId,
+        currentFolderPath,
+        targetParentFolder
+    });
+}
+

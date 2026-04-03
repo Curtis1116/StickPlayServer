@@ -9,12 +9,12 @@ use crate::models::{VideoEntry, VideoFilter};
 pub struct Database {
     pub conn: Mutex<Connection>,
     pub app_data_dir: PathBuf,
+    pub db_name: Mutex<String>,
     /// 掃描中旗標：防止掃描進行中切換資料庫導致索引寫入錯誤資料庫
     is_scanning: AtomicBool,
 }
 
 impl Database {
-    /// 初始化資料庫連線及建立資料表
     pub fn new(app_data_dir: PathBuf) -> SqlResult<Self> {
         std::fs::create_dir_all(&app_data_dir).ok();
 
@@ -23,6 +23,7 @@ impl Database {
         Ok(Self {
             conn: Mutex::new(conn),
             app_data_dir,
+            db_name: Mutex::new("stickplay".to_string()),
             is_scanning: AtomicBool::new(false),
         })
     }
@@ -81,8 +82,6 @@ impl Database {
         Ok(conn)
     }
 
-    /// 切換使用中的資料庫檔案（供多媒體庫功能使用）
-    /// 若目前正在掃描媒體庫，則拒絕切換以避免索引寫入錯誤資料庫
     pub fn switch_database(&self, db_name: &str) -> SqlResult<()> {
         if self.is_scanning.load(Ordering::SeqCst) {
             return Err(rusqlite::Error::SqliteFailure(
@@ -93,7 +92,24 @@ impl Database {
         let new_conn = Self::create_connection(&self.app_data_dir, db_name)?;
         let mut conn_guard = self.conn.lock().unwrap();
         *conn_guard = new_conn;
+        
+        let mut name_guard = self.db_name.lock().unwrap();
+        *name_guard = db_name.to_string();
+        
         Ok(())
+    }
+
+    /// 取得目前資料庫專屬的縮圖路徑
+    pub fn thumbnail_dir(&self) -> PathBuf {
+        let name = self.db_name.lock().unwrap().clone();
+        let dir_val = if name == "stickplay" {
+            // 保留預設資料庫的縮圖路徑相容性
+            self.app_data_dir.join("thumbnails")
+        } else {
+            self.app_data_dir.join(format!("thumbnails_{}", name))
+        };
+        std::fs::create_dir_all(&dir_val).ok();
+        dir_val
     }
 
     /// 設定掃描旗標（由 scanner 呼叫）

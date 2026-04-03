@@ -70,7 +70,6 @@ fn scan_library_paths_inner(db: &Database, paths: &[String]) -> Result<usize, St
 }
 
 /// 掃描單一資料夾，更新索引
-/// 提示：此版本為「純讀取」模式，不會自動生成海報，也不會修改 .nfo
 pub fn scan_single_folder(
     db: &Database,
     dir_path: &Path,
@@ -86,7 +85,7 @@ pub fn scan_single_folder(
 
     let folder_meta = parse_folder_name(&folder_name);
 
-    // 僅尋找 .nfo 檔案，不再支持 .nfos
+    // 僅尋找 .nfo 檔案
     let nfo_path = find_file_by_ext(dir_path, "nfo");
 
     // 解析中繼資料
@@ -105,46 +104,30 @@ pub fn scan_single_folder(
 
     let is_uncensored = nfo_data.is_uncensored || folder_meta.as_ref().map(|m| m.is_uncensored).unwrap_or(false);
 
-    // 尋找海報圖（僅尋找現成圖片，不自動裁切）
+    // 尋找海報圖
     let poster_path = find_best_poster(dir_path, &video_path);
 
-    // 產生縮圖
+    // 產生縮圖 (隔離路徑修復)
     if let Some(ref p) = poster_path {
-        let thumbnail_dir = db.app_data_dir.join("thumbnails");
-        if let Err(e) = std::fs::create_dir_all(&thumbnail_dir) {
-            crate::app_log!("[THUMB] 無法建立縮圖目錄: {}, 錯誤: {}", thumbnail_dir.display(), e);
-        } else {
-            let safe_id = id.replace("/", "_").replace("\\", "_").replace(":", "_");
-            let thumb_path = thumbnail_dir.join(format!("{}.jpg", safe_id));
-            
-            if !thumb_path.exists() {
-                crate::app_log!("[THUMB] 正在為 [{}] 產生縮圖...", id);
-                match std::fs::read(p) {
-                    Ok(bytes) => {
-                        match image::load_from_memory(&bytes) {
-                            Ok(img) => {
-                                let thumb = img.thumbnail(300, 450);
-                                if let Err(e) = thumb.save(&thumb_path) {
-                                    crate::app_log!("[THUMB] 儲存失敗 [{}]: {}", id, e);
-                                } else {
-                                    crate::app_log!("[THUMB] 成功產生 [{}]", id);
-                                }
-                            }
-                            Err(e) => {
-                                crate::app_log!("[THUMB] 無法解析圖片內容 [{}], 路徑: {}, 錯誤: {}", id, p, e);
-                            }
+        let thumbnail_dir = db.thumbnail_dir();
+        let safe_id = id.replace("/", "_").replace("\\", "_").replace(":", "_");
+        let thumb_path = thumbnail_dir.join(format!("{}.jpg", safe_id));
+        
+        if !thumb_path.exists() {
+            crate::app_log!("[THUMB] 正在為 [{}] 產生縮圖...", id);
+            match std::fs::read(p) {
+                Ok(bytes) => {
+                    match image::load_from_memory(&bytes) {
+                        Ok(img) => {
+                            let thumb = img.thumbnail(300, 450);
+                            let _ = thumb.save(&thumb_path);
                         }
-                    }
-                    Err(e) => {
-                        crate::app_log!("[THUMB] 無法讀取實體檔案 [{}], 路徑: {}, 錯誤: {}", id, p, e);
+                        Err(_) => {}
                     }
                 }
-            } else {
-                crate::app_log!("[THUMB] 跳過 [{}]: 縮圖已存在", id);
+                Err(_) => {}
             }
         }
-    } else {
-        crate::app_log!("[THUMB] 跳過 [{}]: 找不到適合的海報 (poster_path 為空)", id);
     }
 
     let mut genres = Vec::new();
@@ -168,7 +151,7 @@ pub fn scan_single_folder(
         }
     }
 
-    // 寫入資料庫 (包含 criticrating)
+    // 寫入資料庫
     db.upsert_video(
         &id,
         &title,
@@ -180,7 +163,7 @@ pub fn scan_single_folder(
         &dir_path.to_string_lossy(),
         poster_path.as_deref(),
         nfo_path.as_deref(),
-        None, // 徹底拋棄 nfos_path
+        None,
         &final_actors,
         &genres,
         nfo_data.criticrating.unwrap_or(0),

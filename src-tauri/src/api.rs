@@ -517,7 +517,7 @@ pub async fn crop_and_save_poster(
 
         // 更新縮圖 (Thumbnail)
         if !video_id_final.is_empty() {
-            let thumbnail_dir = state_cloned.db.app_data_dir.join("thumbnails");
+            let thumbnail_dir = state_cloned.db.thumbnail_dir();
             let _ = std::fs::create_dir_all(&thumbnail_dir);
             let safe_id = video_id_final.replace("/", "_").replace("\\", "_").replace(":", "_");
             let thumb_path = thumbnail_dir.join(format!("{}.jpg", safe_id));
@@ -699,7 +699,7 @@ pub async fn serve_image_file(
     if query.thumb.unwrap_or(false) {
         if let Some(ref id) = query.id {
             let safe_id = id.replace("/", "_").replace("\\", "_").replace(":", "_");
-            let thumb_path = state.db.app_data_dir.join("thumbnails").join(format!("{}.jpg", safe_id));
+            let thumb_path = state.db.thumbnail_dir().join(format!("{}.jpg", safe_id));
             if thumb_path.exists() {
                 let req_for_thumb = Request::from_parts(parts.clone(), axum::body::Body::empty());
                 match ServeFile::new(thumb_path).oneshot(req_for_thumb).await {
@@ -771,5 +771,68 @@ pub async fn save_libraries(
     let content = serde_json::to_string_pretty(&libs).map_err(map_err)?;
     std::fs::write(path, content).map_err(map_err)?;
     Ok(Json(()))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MoveFolderPayload {
+    pub video_id: String,
+    pub current_folder_path: String,
+    pub target_parent_folder: String,
+}
+
+pub async fn move_video_folder(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<MoveFolderPayload>,
+) -> ApiResult<VideoEntry> {
+    let current_dir = Path::new(&payload.current_folder_path);
+    if !current_dir.exists() || !current_dir.is_dir() {
+        return Err(map_err("來源資料夾不存在"));
+    }
+
+    let target_parent = Path::new(&payload.target_parent_folder);
+    if !target_parent.exists() || !target_parent.is_dir() {
+        return Err(map_err("目的資料夾不存在"));
+    }
+
+    let folder_name = current_dir.file_name()
+        .ok_or_else(|| map_err("無法解析來源資料夾名稱"))?;
+
+    let new_dir = target_parent.join(folder_name);
+    
+    if new_dir.exists() {
+        return Err(map_err("目的端已有同名資料夾"));
+    }
+
+    // 搬移資料夾
+    std::fs::rename(current_dir, &new_dir).map_err(|e| map_err(format!("搬移失敗: {}", e)))?;
+
+    // 將舊路徑從資料庫刪除
+    {
+        let conn = state.db.conn.lock().unwrap();
+        let _ = conn.execute(
+            "DELETE FROM videos WHERE folder_path = ?1",
+            rusqlite::params![payload.current_folder_path],
+        );
+    }
+
+    // 重新掃描該新位置
+    if let Err(e) = scan_single_folder(&state.db, &new_dir, false) {
+        return Err(map_err(format!("搬移成功，但重新索引失敗 (未找到影片或不在清單中): {}", e)));
+    }
+
+    // 從資料庫撈出新的資料回傳，若撈不到代表該資料夾超出目前媒體庫的監控範圍
+    let filter = VideoFilter {
+        search: Some(payload.video_id),
+        ..Default::default()
+    };
+    
+    let videos = state.db.query_videos(&filter).map_err(map_err)?;
+    let entry = videos
+        .into_iter()
+        .find(|v| v.folder_path == new_dir.to_string_lossy().to_string())
+        .ok_or_else(|| map_err("搬移成功，但該影片不在目前媒體庫的監控範圍內 (可能會從畫面上消失)"))?;
+
+    Ok(Json(entry))
 }
 

@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, memo } from "react";
-import { Star, Play, RefreshCw, Scissors } from "lucide-react";
+import { Star, Play, RefreshCw, Scissors, FolderOutput } from "lucide-react";
 import { VideoEntry } from "../types";
 import { openVideo, toggleFavorite, rescanSingleVideo, readImage } from "../api";
 import EditVideoModal from "./EditVideoModal";
 import ManualCropModal from "./ManualCropModal";
+import MoveFolderModal from "./MoveFolderModal";
 
 interface VideoCardProps {
     video: VideoEntry;
@@ -24,6 +25,7 @@ const VideoCard = memo(({
 }: VideoCardProps) => {
     const [showRating, setShowRating] = useState(false);
     const [showCropModal, setShowCropModal] = useState(false);
+    const [showMoveModal, setShowMoveModal] = useState(false);
     const [rescanning, setRescanning] = useState(false);
     const [posterUrl, setPosterUrl] = useState<string | null>(null);
     const [updateTrigger, setUpdateTrigger] = useState(0);
@@ -32,8 +34,8 @@ const VideoCard = memo(({
 
     // 當 Modal 開啟或關閉時，通知 App 元件
     useEffect(() => {
-        onModalStateChange(showRating || showCropModal);
-    }, [showRating, showCropModal, onModalStateChange]);
+        onModalStateChange(showRating || showCropModal || showMoveModal);
+    }, [showRating, showCropModal, showMoveModal, onModalStateChange]);
 
     useEffect(() => {
         if (!video.poster_path) {
@@ -161,7 +163,7 @@ const VideoCard = memo(({
                     <button
                         onClick={handleRescan}
                         disabled={rescanning}
-                        className="absolute top-2 right-2 z-20 w-7 h-7 flex items-center justify-center rounded-lg bg-black/40 backdrop-blur-md border border-white/10 hover:bg-black/60 transition-all disabled:opacity-50"
+                        className="absolute top-10 right-2 z-20 w-7 h-7 flex items-center justify-center rounded-lg bg-black/40 backdrop-blur-md border border-white/10 hover:bg-black/60 transition-all disabled:opacity-50"
                         title="重新整理索引"
                     >
                         <RefreshCw size={13} className={`text-zinc-300 ${rescanning ? "animate-spin" : ""}`} />
@@ -170,17 +172,28 @@ const VideoCard = memo(({
                     <div className="flex flex-col gap-2 relative">
                         <button
                             onClick={(e) => { e.stopPropagation(); handlePlayInternal(); }}
-                            className="w-full bg-white text-black py-2 rounded-lg text-xs font-bold hover:bg-indigo-50 flex items-center justify-center gap-1.5 transition-colors"
+                            className="w-full bg-white text-black py-1.5 rounded-lg text-xs font-bold hover:bg-indigo-50 flex items-center justify-center gap-1.5 transition-colors"
                         >
                             <Play size={12} fill="currentColor" /> 播放
                         </button>
 
-                        <button
-                            onClick={(e) => { e.stopPropagation(); setShowCropModal(true); }}
-                            className="bg-zinc-800/80 border border-white/10 py-2 rounded-lg text-[10px] font-bold hover:bg-zinc-700 text-zinc-300 flex items-center justify-center gap-1.5"
-                        >
-                            <Scissors size={10} /> 海報裁切
-                        </button>
+                        <div className="grid grid-cols-2 gap-2">
+                            <button
+                                onClick={(e) => { e.stopPropagation(); setShowCropModal(true); }}
+                                className="bg-zinc-800 border border-white/10 py-2 rounded-lg hover:bg-zinc-700 text-zinc-200 flex items-center justify-center transition-all"
+                                title="手動裁切海報"
+                            >
+                                <Scissors size={16} />
+                            </button>
+
+                            <button
+                                onClick={(e) => { e.stopPropagation(); setShowMoveModal(true); }}
+                                className="bg-zinc-800 border border-white/10 py-2 rounded-lg hover:bg-zinc-700 text-zinc-200 flex items-center justify-center transition-all"
+                                title="搬移資料夾"
+                            >
+                                <FolderOutput size={16} />
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -226,6 +239,20 @@ const VideoCard = memo(({
                     onSaved={(newPosterPath) => {
                         onVideoUpdated({ ...video, poster_path: newPosterPath });
                         setUpdateTrigger(prev => prev + 1);
+                    }}
+                    onToast={onToast}
+                />
+            )}
+
+            {showMoveModal && (
+                <MoveFolderModal
+                    video={video}
+                    onClose={() => setShowMoveModal(false)}
+                    onSaved={(updatedVideo) => {
+                        onVideoUpdated(updatedVideo);
+                    }}
+                    onRemoved={(id) => {
+                        if (onVideoRemoved) onVideoRemoved(id);
                     }}
                     onToast={onToast}
                 />

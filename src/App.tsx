@@ -86,8 +86,8 @@ export default function App() {
         await switchDatabase(activeLib.db_name);
 
         // 載入上次的排序選項
-        const savedSortBy = getStore<string>("last_sort_by");
-        const savedSortOrder = getStore<string>("last_sort_order");
+        const savedSortBy = getStore<string>(`${active}_last_sort_by`);
+        const savedSortOrder = getStore<string>(`${active}_last_sort_order`);
         if (savedSortBy || savedSortOrder) {
           setFilter(prev => ({
             ...prev,
@@ -214,15 +214,24 @@ export default function App() {
         // 先確保後端切換成功
         await switchDatabase(lib.db_name);
         localStorage.setItem("stickplay_active_library_id", JSON.stringify(id));
-        
         // 更新狀態
         setActiveLibraryId(id);
-        
-        // 顯式重新載入資料，確保抓到的是新資料庫內容
-        await Promise.all([
-          loadMeta(),
-          loadVideos()
-        ]);
+
+        // 讀取該媒體庫儲存的排序選項
+        const savedSortBy = localStorage.getItem(`stickplay_${id}_last_sort_by`);
+        const savedSortOrder = localStorage.getItem(`stickplay_${id}_last_sort_order`);
+
+        setFilter({
+          sort_by: savedSortBy ? JSON.parse(savedSortBy) : "date_added",
+          sort_order: savedSortOrder ? JSON.parse(savedSortOrder) : "DESC",
+          search: undefined,
+          genres: undefined,
+          levels: undefined,
+          favorites_only: undefined,
+        });
+
+        // 顯式重新載入 Meta 資料，filter 改變或 activeLibraryId 改變會自動觸發 loadVideos
+        await loadMeta();
       } catch (e) {
         showToast(`切換媒體庫失敗: ${e}`);
       }
@@ -241,8 +250,8 @@ export default function App() {
     // 如果排序選項改變，儲存到設定
     if (newFilter.sort_by !== filter.sort_by || newFilter.sort_order !== filter.sort_order) {
       try {
-        if (newFilter.sort_by) localStorage.setItem("stickplay_last_sort_by", JSON.stringify(newFilter.sort_by));
-        if (newFilter.sort_order) localStorage.setItem("stickplay_last_sort_order", JSON.stringify(newFilter.sort_order));
+        if (newFilter.sort_by) localStorage.setItem(`stickplay_${activeLibraryId}_last_sort_by`, JSON.stringify(newFilter.sort_by));
+        if (newFilter.sort_order) localStorage.setItem(`stickplay_${activeLibraryId}_last_sort_order`, JSON.stringify(newFilter.sort_order));
       } catch (e) {
         console.error("儲存排序偏好失敗:", e);
       }
