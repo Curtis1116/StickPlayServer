@@ -158,8 +158,9 @@ pub async fn run() {
             // 偵測刪除的資料夾
             let removed: Vec<String> = known_dirs.difference(&current_dirs)
                 .filter(|d| {
-                    // 只處理屬於當前 watch_paths 下的資料夾
-                    watch_paths.iter().any(|wp| d.starts_with(wp))
+                    // 只處理屬於當前 watch_paths 下，且該 watch_path 目前是在線狀態的資料夾
+                    // 如果整個 watch_path（例如：/media/nas）都不存在了，就不該刪除
+                    watch_paths.iter().any(|wp| d.starts_with(wp) && std::path::Path::new(wp).exists())
                 })
                 .cloned()
                 .collect();
