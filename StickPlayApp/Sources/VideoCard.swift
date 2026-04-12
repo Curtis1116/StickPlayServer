@@ -41,6 +41,15 @@ struct VideoCard: View {
                         ProgressView()
                     }
                     
+                    if !video.level.isEmpty {
+                        Text(video.level)
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(.blue)
+                            .shadow(color: .black.opacity(0.8), radius: 2, x: 1, y: 1)
+                            .padding(4)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    }
+                    
                     if video.isFavorite {
                         Image(systemName: "heart.fill")
                             .foregroundColor(.red)
@@ -69,13 +78,9 @@ struct VideoCard: View {
             // Metadata
             Button(action: onEdit) {
                 HStack(alignment: .center, spacing: 6) {
-                    HStack(spacing: 2) {
-                        Image(systemName: "star.fill")
-                            .foregroundColor(.yellow)
-                        Text(String(format: "%.1f", video.rating))
-                            .fontWeight(.medium)
-                            .foregroundColor(.black)
-                    }
+                    Text("\(video.criticrating)")
+                        .fontWeight(.bold)
+                        .foregroundColor(.yellow)
                     
                     if !video.actors.isEmpty {
                         Text(video.actors.joined(separator: ", "))
