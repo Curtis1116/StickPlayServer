@@ -5,6 +5,10 @@ import ReactCrop, { Crop, PixelCrop, centerCrop, makeAspectCrop } from 'react-im
 import 'react-image-crop/dist/ReactCrop.css';
 import { getFolderImages, cropAndSavePoster, readImage } from "../api";
 
+const DEFAULT_ASPECT = 2 / 3;
+const MIN_ASPECT = 0.6;
+const MAX_ASPECT = 0.8;
+
 interface ManualCropModalProps {
     folderPath: string;
     videoId: string;
@@ -61,10 +65,11 @@ export default function ManualCropModal({
 
     const onImageLoad = (e: SyntheticEvent<HTMLImageElement>) => {
         const { width, height } = e.currentTarget;
+        // 預設維持 2:3 比例，且高度為圖片全高
         const initialCrop = centerCrop(
             makeAspectCrop(
-                { unit: '%', width: 90 },
-                2 / 3,
+                { unit: '%', height: 100 },
+                DEFAULT_ASPECT,
                 width,
                 height
             ),
@@ -72,6 +77,42 @@ export default function ManualCropModal({
             height
         );
         setCrop(initialCrop);
+        setCompletedCrop(undefined);
+    };
+
+    // 允許拖曳邊界自由調整比例，但限制在 0.6~0.8 之間
+    const clampCropAspect = (c: PixelCrop, containerWidth: number, containerHeight: number): PixelCrop => {
+        if (!c.width || !c.height) return c;
+
+        let { x, y, width, height } = c;
+        const ratio = width / height;
+
+        if (ratio < MIN_ASPECT) {
+            const newHeight = width / MIN_ASPECT;
+            y += (height - newHeight) / 2;
+            height = newHeight;
+        } else if (ratio > MAX_ASPECT) {
+            const newWidth = height * MAX_ASPECT;
+            x += (width - newWidth) / 2;
+            width = newWidth;
+        }
+
+        // 確保裁切框調整比例後仍落在圖片範圍內
+        width = Math.min(width, containerWidth);
+        height = Math.min(height, containerHeight);
+        x = Math.max(0, Math.min(x, containerWidth - width));
+        y = Math.max(0, Math.min(y, containerHeight - height));
+
+        return { ...c, x, y, width, height };
+    };
+
+    const handleCropChange = (c: PixelCrop) => {
+        const img = imgRef.current;
+        if (!img) {
+            setCrop(c);
+            return;
+        }
+        setCrop(clampCropAspect(c, img.width, img.height));
     };
 
     const handleSave = async () => {
@@ -145,9 +186,8 @@ export default function ManualCropModal({
                         ) : images.length > 0 ? (
                             <ReactCrop
                                 crop={crop}
-                                onChange={(c: PixelCrop) => setCrop(c)}
+                                onChange={handleCropChange}
                                 onComplete={(c: PixelCrop) => setCompletedCrop(c)}
-                                aspect={2 / 3}
                                 className="max-h-full"
                             >
                                 <img

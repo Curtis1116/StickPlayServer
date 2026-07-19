@@ -115,6 +115,12 @@ export function isIOSDevice(): boolean {
     return navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1;
 }
 
+/// 判斷是否為 Windows 桌面瀏覽器（用於放大海報卡片的顯示尺寸；300x450 縮圖本身
+/// 解析度已足夠，純粹是卡片版面在 Windows 下顯示更大張）
+export function isWindowsDevice(): boolean {
+    return /Windows NT/i.test(navigator.userAgent);
+}
+
 /// 依平台回傳此裝置可選的播放器清單（PotPlayer 僅 Windows 有，Infuse 僅 iOS/iPadOS/macOS 有）
 export function getAvailablePlayers(): PlayerChoice[] {
     return isIOSDevice() ? ["browser", "vlc", "infuse"] : ["browser", "potplayer", "vlc"];
@@ -169,10 +175,13 @@ export async function deleteDatabase(dbName: string): Promise<void> {
 }
 
 /// 回傳圖片伺服器網址
-export async function readImage(path: string, id?: string, thumb: boolean = true): Promise<string> {
+/// version 用於強制瀏覽器在圖片內容變更後（例如手動裁切、重新索引）重新抓取，
+/// 而非沿用同一組 path/id 對應到的舊快取內容
+export async function readImage(path: string, id?: string, thumb: boolean = true, version?: number): Promise<string> {
     let url = `/api/image?path=${encodeURIComponent(path)}`;
     if (id) url += `&id=${encodeURIComponent(id)}`;
     if (thumb) url += `&thumb=true`;
+    if (version) url += `&v=${version}`;
     return url;
 }
 

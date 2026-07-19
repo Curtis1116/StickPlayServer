@@ -225,6 +225,7 @@ pub fn update_nfo(
     video_id: &str,
     rating: f64,
     critic_rating_opt: Option<i32>,
+    date_added: &str,
 ) -> Result<(), String> {
     let mut tags = Vec::new();
     let synchronized_critic_rating = critic_rating_opt.unwrap_or_else(|| {
@@ -232,6 +233,10 @@ pub fn update_nfo(
     });
     let synchronized_rating = synchronized_critic_rating as f64 / 10.0;
 
+    // 保留原本的 dateadded，避免手術式更新時被 MANAGED_TAGS 清除後遺失
+    if !date_added.is_empty() {
+        tags.push(("dateadded".to_string(), format!("<dateadded>{}</dateadded>", date_added)));
+    }
     tags.push(("num".to_string(), format!("<num>{}</num>", video_id)));
     tags.push(("rating".to_string(), format!("<rating>{:.1}</rating>", synchronized_rating)));
     tags.push(("criticrating".to_string(), format!("<criticrating>{}</criticrating>", synchronized_critic_rating)));

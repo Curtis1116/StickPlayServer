@@ -390,7 +390,10 @@ pub async fn update_rating(
     };
 
     let nfo_p = Path::new(&target_nfo);
-    update_nfo(nfo_p, &payload.video_id, payload.rating, Some(payload.criticrating)).map_err(map_err)?;
+    let existing_date_added = crate::parser::parse_nfo(nfo_p)
+        .map(|d| d.date_added)
+        .unwrap_or_default();
+    update_nfo(nfo_p, &payload.video_id, payload.rating, Some(payload.criticrating), &existing_date_added).map_err(map_err)?;
 
     {
         let conn = state.db.conn.lock().unwrap();
@@ -542,7 +545,8 @@ pub async fn crop_and_save_poster(
                     &nfo_p,
                     nfo_data.num.as_deref().unwrap_or(""),
                     nfo_data.rating.unwrap_or(0.0),
-                    nfo_data.criticrating
+                    nfo_data.criticrating,
+                    &nfo_data.date_added,
                 );
              }
         }
@@ -700,6 +704,18 @@ pub struct ImageQuery {
     pub thumb: Option<bool>,
 }
 
+/// 強制瀏覽器每次都重新驗證（conditional GET）才能使用快取，而非直接沿用舊內容。
+/// 海報／縮圖檔案會因裁切、重新索引等操作在背後被置換，若沒有這個標頭，瀏覽器可能
+/// 完全不發出網路請求、直接沿用舊分頁快取下來的舊內容。ServeFile 本身已支援
+/// Last-Modified／ETag 驗證，因此内容未變時仍會回應輕量的 304，不會犧牲頻寬。
+fn with_no_cache(mut res: axum::response::Response) -> axum::response::Response {
+    res.headers_mut().insert(
+        axum::http::header::CACHE_CONTROL,
+        axum::http::HeaderValue::from_static("no-cache"),
+    );
+    res
+}
+
 pub async fn serve_image_file(
     State(state): State<Arc<AppState>>,
     Query(query): Query<ImageQuery>,
@@ -710,10 +726,11 @@ pub async fn serve_image_file(
     if query.thumb.unwrap_or(false) {
         if let Some(ref id) = query.id {
             let safe_id = id.replace("/", "_").replace("\\", "_").replace(":", "_");
+
             if let Some(thumb_path) = state.db.resolve_thumbnail(&safe_id) {
                 let req_for_thumb = Request::from_parts(parts.clone(), axum::body::Body::empty());
                 match ServeFile::new(thumb_path).oneshot(req_for_thumb).await {
-                    Ok(res) => return Ok(res.into_response()),
+                    Ok(res) => return Ok(with_no_cache(res.into_response())),
                     Err(_) => {} // Fallback
                 }
             }
@@ -726,7 +743,7 @@ pub async fn serve_image_file(
     }
     
     match ServeFile::new(path).oneshot(Request::from_parts(parts, axum::body::Body::empty())).await {
-        Ok(res) => Ok(res.into_response()),
+        Ok(res) => Ok(with_no_cache(res.into_response())),
         Err(_) => Err((StatusCode::INTERNAL_SERVER_ERROR, "Error serving file".to_string())),
     }
 }

@@ -3,6 +3,11 @@ import { VideoEntry } from "../types";
 import VideoCard from "./VideoCard";
 import { useWindowVirtualizer } from "@tanstack/react-virtual";
 import { useRef, useState, useLayoutEffect, useMemo } from "react";
+import { isWindowsDevice } from "../api";
+
+// Windows 桌面瀏覽器卡片顯示大一點；縮圖仍是原本的 300x450，不需要額外產生更大的圖，
+// 純粹是版面上讓卡片本身變大。其他平台（含 iPhone）維持原本 105px，不受影響
+const MIN_CARD_WIDTH = isWindowsDevice() ? 210 : 105;
 
 interface VideoGridProps {
     videos: VideoEntry[];
@@ -48,7 +53,7 @@ export default function VideoGrid({
 
     const columns = useMemo(() => {
         const gap = containerWidth >= 640 ? 32 : 12; // sm: 是 640px
-        const minChildWithGap = 105 + gap;
+        const minChildWithGap = MIN_CARD_WIDTH + gap;
         let cols = Math.floor((containerWidth + gap) / minChildWithGap);
         return Math.max(1, cols);
     }, [containerWidth]);

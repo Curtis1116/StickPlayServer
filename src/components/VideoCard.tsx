@@ -47,7 +47,7 @@ const VideoCard = memo(({
         const observer = new IntersectionObserver(
             (entries) => {
                 if (entries[0].isIntersecting) {
-                    readImage(video.poster_path!, video.id)
+                    readImage(video.poster_path!, video.id, true, updateTrigger || undefined)
                         .then((dataUrl) => {
                             if (!cancelled) setPosterUrl(dataUrl);
                         })
