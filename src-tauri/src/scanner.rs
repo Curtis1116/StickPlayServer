@@ -120,12 +120,18 @@ pub fn scan_single_folder(
                     match image::load_from_memory(&bytes) {
                         Ok(img) => {
                             let thumb = img.thumbnail(300, 450);
-                            let _ = thumb.save(&thumb_path);
+                            if let Err(e) = thumb.save(&thumb_path) {
+                                crate::app_log!("[THUMB] [{}] 縮圖儲存失敗 ({:?}): {}", id, thumb_path, e);
+                            }
                         }
-                        Err(_) => {}
+                        Err(e) => {
+                            crate::app_log!("[THUMB] [{}] 海報圖解碼失敗 ({:?}): {}", id, p, e);
+                        }
                     }
                 }
-                Err(_) => {}
+                Err(e) => {
+                    crate::app_log!("[THUMB] [{}] 讀取海報圖失敗 ({:?}): {}", id, p, e);
+                }
             }
         }
     }

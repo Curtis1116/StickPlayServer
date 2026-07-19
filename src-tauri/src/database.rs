@@ -5,13 +5,36 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::models::{VideoEntry, VideoFilter};
 
+/// `conn` 與目前所屬的 `name` 綁在一起、由同一把鎖保護，確保「切換資料庫」時
+/// 兩者一定同時可見同一個狀態，不會有其他執行緒讀到「conn 已切換但 name 還沒切換」
+/// （或反過來）的不一致中間狀態。對外仍可直接呼叫 Connection 的方法（透過 Deref）。
+pub struct DbConn {
+    conn: Connection,
+    name: String,
+}
+
+impl std::ops::Deref for DbConn {
+    type Target = Connection;
+    fn deref(&self) -> &Connection {
+        &self.conn
+    }
+}
+
+impl std::ops::DerefMut for DbConn {
+    fn deref_mut(&mut self) -> &mut Connection {
+        &mut self.conn
+    }
+}
+
 /// 資料庫封裝 — 使用 Mutex 確保線程安全
 pub struct Database {
-    pub conn: Mutex<Connection>,
+    pub conn: Mutex<DbConn>,
     pub app_data_dir: PathBuf,
-    pub db_name: Mutex<String>,
     /// 掃描中旗標：防止掃描進行中切換資料庫導致索引寫入錯誤資料庫
     is_scanning: AtomicBool,
+    /// 快取「目前資料庫的縮圖目錄是否已建立」，避免 serve_image_file 這種高頻率的
+    /// 熱路徑每次請求都重複執行一次阻塞式的 create_dir_all 系統呼叫；切換資料庫時會重置。
+    thumb_dir_ready: AtomicBool,
 }
 
 impl Database {
@@ -21,10 +44,10 @@ impl Database {
         let conn = Self::create_connection(&app_data_dir, "stickplay")?;
 
         Ok(Self {
-            conn: Mutex::new(conn),
+            conn: Mutex::new(DbConn { conn, name: "stickplay".to_string() }),
             app_data_dir,
-            db_name: Mutex::new("stickplay".to_string()),
             is_scanning: AtomicBool::new(false),
+            thumb_dir_ready: AtomicBool::new(false),
         })
     }
 
@@ -90,26 +113,59 @@ impl Database {
             ));
         }
         let new_conn = Self::create_connection(&self.app_data_dir, db_name)?;
-        let mut conn_guard = self.conn.lock().unwrap();
-        *conn_guard = new_conn;
-        
-        let mut name_guard = self.db_name.lock().unwrap();
-        *name_guard = db_name.to_string();
-        
+
+        // conn 與 name 在同一把鎖底下一次更新完畢，其他執行緒不論是透過 Deref 使用
+        // Connection（例如查詢／寫入），或是呼叫 thumbnail_dir() 讀取 name，都只會鎖到
+        // 同一個 Mutex，因此不可能在切換過程中觀察到兩者不一致的中間狀態。
+        let mut guard = self.conn.lock().unwrap();
+        guard.conn = new_conn;
+        guard.name = db_name.to_string();
+        drop(guard);
+
+        // 換了資料庫，縮圖目錄也跟著換了，下一次 thumbnail_dir() 需要重新確保目錄存在
+        self.thumb_dir_ready.store(false, Ordering::SeqCst);
+
         Ok(())
     }
 
     /// 取得目前資料庫專屬的縮圖路徑
     pub fn thumbnail_dir(&self) -> PathBuf {
-        let name = self.db_name.lock().unwrap().clone();
+        let name = self.conn.lock().unwrap().name.clone();
         let dir_val = if name == "stickplay" {
             // 保留預設資料庫的縮圖路徑相容性
             self.app_data_dir.join("thumbnails")
         } else {
             self.app_data_dir.join(format!("thumbnails_{}", name))
         };
-        std::fs::create_dir_all(&dir_val).ok();
+        // 只在切換資料庫後的第一次呼叫才真正執行 create_dir_all，避免每一次縮圖請求
+        // 都重複做一次阻塞式的檔案系統呼叫
+        if !self.thumb_dir_ready.swap(true, Ordering::SeqCst) {
+            std::fs::create_dir_all(&dir_val).ok();
+        }
         dir_val
+    }
+
+    /// 找出某個影片 id 實際可用的縮圖路徑：優先使用「目前資料庫專屬」的縮圖目錄，
+    /// 若找不到則回退查詢舊版共用的 `thumbnails/` 資料夾。
+    ///
+    /// 背景：在引入「每個媒體庫獨立縮圖目錄」之前，所有媒體庫共用同一個 thumbnails/
+    /// 資料夾。既有安裝升級後，之前已建立索引、尚未被重新掃描的影片，其縮圖仍留在
+    /// 舊的共用資料夾內；若不回退查詢，會導致這些縮圖全部「憑空消失」，改為顯示
+    /// 未經壓縮的原始海報圖。
+    pub fn resolve_thumbnail(&self, safe_id: &str) -> Option<PathBuf> {
+        let filename = format!("{}.jpg", safe_id);
+
+        let current = self.thumbnail_dir().join(&filename);
+        if current.exists() {
+            return Some(current);
+        }
+
+        let legacy = self.app_data_dir.join("thumbnails").join(&filename);
+        if legacy.exists() {
+            return Some(legacy);
+        }
+
+        None
     }
 
     /// 設定掃描旗標（由 scanner 呼叫）

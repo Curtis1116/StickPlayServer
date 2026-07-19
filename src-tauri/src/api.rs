@@ -23,6 +23,17 @@ fn map_err(e: impl ToString) -> ApiError {
     (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
 }
 
+/// 離開作用域時自動清除 `is_scanning` 旗標，確保提前 return 或發生錯誤時旗標也不會卡住
+struct ScanGuard<'a> {
+    db: &'a crate::database::Database,
+}
+
+impl<'a> Drop for ScanGuard<'a> {
+    fn drop(&mut self) {
+        self.db.set_scanning(false);
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ScanPathsPayload {
@@ -699,8 +710,7 @@ pub async fn serve_image_file(
     if query.thumb.unwrap_or(false) {
         if let Some(ref id) = query.id {
             let safe_id = id.replace("/", "_").replace("\\", "_").replace(":", "_");
-            let thumb_path = state.db.thumbnail_dir().join(format!("{}.jpg", safe_id));
-            if thumb_path.exists() {
+            if let Some(thumb_path) = state.db.resolve_thumbnail(&safe_id) {
                 let req_for_thumb = Request::from_parts(parts.clone(), axum::body::Body::empty());
                 match ServeFile::new(thumb_path).oneshot(req_for_thumb).await {
                     Ok(res) => return Ok(res.into_response()),
@@ -795,19 +805,51 @@ pub async fn move_video_folder(
         return Err(map_err("目的資料夾不存在"));
     }
 
+    // 限制來源與目的都必須落在「目前使用中媒體庫」實際監控的路徑之內，而不是籠統地限制在 /media 之下。
+    // 這樣一來：(1) 無法透過此 API 搬移到媒體庫監控範圍以外的任意主機目錄；
+    // (2) 也無法搬移到「屬於其他媒體庫」的監控路徑，避免同一支影片被跨媒體庫重複索引。
+    let watch_paths: Vec<String> = state.watch_paths.lock().unwrap().iter().cloned().collect();
+    let within_watch_paths = |p: &str| watch_paths.iter().any(|wp| Path::new(p).starts_with(wp));
+    if watch_paths.is_empty()
+        || !within_watch_paths(&payload.current_folder_path)
+        || !within_watch_paths(&payload.target_parent_folder)
+    {
+        return Err(map_err("來源或目的路徑不在目前媒體庫的監控範圍內，無法搬移"));
+    }
+
     let folder_name = current_dir.file_name()
         .ok_or_else(|| map_err("無法解析來源資料夾名稱"))?;
 
     let new_dir = target_parent.join(folder_name);
-    
+
     if new_dir.exists() {
         return Err(map_err("目的端已有同名資料夾"));
     }
 
+    // 從搬移到重新索引完成為止設定掃描中旗標，避免 switch_database 在此期間插隊切換資料庫，
+    // 導致索引寫入結果落到切換後的新資料庫而非原本預期的那一個（沿用 scan_library_paths 的保護慣例）。
+    // 使用 RAII guard 確保無論哪個分支提前 return，旗標都會在函式結束時被清除。
+    state.db.set_scanning(true);
+    let _scan_guard = ScanGuard { db: &state.db };
+
     // 搬移資料夾
     std::fs::rename(current_dir, &new_dir).map_err(|e| map_err(format!("搬移失敗: {}", e)))?;
 
-    // 將舊路徑從資料庫刪除
+    // 重新掃描新位置。注意：此時故意不預先刪除舊路徑的資料庫紀錄——
+    // 若影片 id 未變 (常見情況，因 id 是由資料夾名稱/NFO 內容決定而非父目錄路徑)，
+    // upsert_video 會透過 ON CONFLICT(id) 就地更新 folder_path，並保留 is_favorite、
+    // rating 等既有欄位；若在此之前先行刪除舊紀錄，就會退化成全新 INSERT 而遺失這些欄位。
+    // 若重新索引失敗，舊紀錄會維持原狀（不會憑空消失），使用者仍可透過既有的
+    // 「重新整理索引」功能自行修復。
+    if let Err(e) = scan_single_folder(&state.db, &new_dir, false) {
+        return Err(map_err(format!(
+            "MOVE_REINDEX_FAILED::資料夾已搬移完成，但重新索引失敗，請至新位置手動重新整理索引: {}",
+            e
+        )));
+    }
+
+    // 清除舊路徑殘留的孤兒紀錄：僅在重新掃描後 id 改變（因而未被就地更新）時才會命中，
+    // 若 id 未變，上一步的就地更新已經把 folder_path 改成新路徑，這裡不會有任何符合的紀錄。
     {
         let conn = state.db.conn.lock().unwrap();
         let _ = conn.execute(
@@ -816,22 +858,17 @@ pub async fn move_video_folder(
         );
     }
 
-    // 重新掃描該新位置
-    if let Err(e) = scan_single_folder(&state.db, &new_dir, false) {
-        return Err(map_err(format!("搬移成功，但重新索引失敗 (未找到影片或不在清單中): {}", e)));
-    }
-
     // 從資料庫撈出新的資料回傳，若撈不到代表該資料夾超出目前媒體庫的監控範圍
     let filter = VideoFilter {
         search: Some(payload.video_id),
         ..Default::default()
     };
-    
+
     let videos = state.db.query_videos(&filter).map_err(map_err)?;
     let entry = videos
         .into_iter()
         .find(|v| v.folder_path == new_dir.to_string_lossy().to_string())
-        .ok_or_else(|| map_err("搬移成功，但該影片不在目前媒體庫的監控範圍內 (可能會從畫面上消失)"))?;
+        .ok_or_else(|| map_err("MOVE_OUT_OF_RANGE::搬移成功，但該影片不在目前媒體庫的監控範圍內 (可能會從畫面上消失)"))?;
 
     Ok(Json(entry))
 }

@@ -192,6 +192,12 @@ export default function Header({
     const sortRef = useRef<HTMLDivElement>(null);
     const libRef = useRef<HTMLDivElement>(null);
 
+    // 讓輸入框與外部的 filter.search 保持同步（例如切換媒體庫時 filter 會被重置，
+    // 若不同步，搜尋框會繼續顯示舊的關鍵字，但畫面其實已經改成顯示未篩選的結果）
+    useEffect(() => {
+        setSearchValue(filter.search || "");
+    }, [filter.search]);
+
     // 防抖搜尋
     const handleSearchChange = useCallback(
         (value: string) => {

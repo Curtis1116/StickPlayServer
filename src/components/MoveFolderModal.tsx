@@ -58,9 +58,13 @@ export default function MoveFolderModal({
             onClose();
         } catch (err: unknown) {
             const msg = String(err);
-            if (msg.includes("不在目前媒體庫的監控範圍內")) {
+            if (msg.includes("MOVE_OUT_OF_RANGE::")) {
                 onToast("✅ 搬移成功 (影片超出目前媒體庫監控，將於清單隱藏)");
                 onRemoved(video.id);
+            } else if (msg.includes("MOVE_REINDEX_FAILED::")) {
+                // 資料夾實際上已搬移成功，只是重新索引失敗；舊紀錄仍保留，並未遺失，
+                // 提示使用者手動重新整理索引即可，不應顯示為「搬移失敗」
+                onToast("⚠️ 資料夾已搬移，但重新索引失敗，請至新位置手動重新整理索引");
             } else {
                 onToast(`❌ 搬移失敗: ${msg}`);
             }
