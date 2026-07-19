@@ -1,0 +1,12 @@
+Windows Registry Editor Version 5.00
+
+[HKEY_CURRENT_USER\Software\Classes\stickplay-potplayer]
+@="URL:StickPlay PotPlayer Protocol"
+"URL Protocol"=""
+
+[HKEY_CURRENT_USER\Software\Classes\stickplay-potplayer\shell]
+
+[HKEY_CURRENT_USER\Software\Classes\stickplay-potplayer\shell\open]
+
+[HKEY_CURRENT_USER\Software\Classes\stickplay-potplayer\shell\open\command]
+@="powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File \"C:\\Users\\huach\\source\\repos\\StickPlayServer\\tools\\external-players\\launch-player.ps1\" -Player potplayer -Uri \"%1\""

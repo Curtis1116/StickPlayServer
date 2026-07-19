@@ -57,6 +57,24 @@ services:
 3.  匯入 `docker-compose.yml` 並視需求修改 `volumes` 路徑。
 4.  啟動後即可透過 `http://NAS_IP:8099` 訪問。
 
+## 🎬 使用本機播放器開啟影片
+
+設定頁可選擇點擊播放時要使用的播放器，清單會依裝置自動調整：
+
+-   **Windows / 桌面瀏覽器**：瀏覽器 / PotPlayer / VLC
+-   **iPhone / iPad（Safari 或 Chrome）**：瀏覽器 / VLC / Infuse
+
+在 iOS/iPadOS 上選擇 VLC 或 Infuse **不需要任何額外設定**，只要裝置上已安裝該 App，網頁會直接透過官方支援的網址格式呼叫它開啟串流。
+
+在 Windows 上選擇 PotPlayer 或 VLC，因為瀏覽器本身無法直接啟動本機執行檔，需要**先完成一次性的通訊協定註冊**，之後每次點擊播放才會自動喚起對應的播放器：
+
+1.  開啟 `tools/external-players/` 資料夾。
+2.  對照你要使用的播放器，雙擊匯入 `stickplay-potplayer.reg` 和/或 `stickplay-vlc.reg`（僅寫入目前使用者的登錄檔，不需要系統管理員權限）。
+3.  若 PotPlayer / VLC 並非安裝在標準路徑（`C:\Program Files\DAUM\PotPlayer` 或 `C:\Program Files\VideoLAN\VLC`），請編輯 `tools/external-players/launch-player.ps1` 內的候選路徑清單。
+4.  若專案資料夾搬移過位置，`.reg` 檔內指向 `launch-player.ps1` 的絕對路徑也要一併更新。
+
+設定完成後，每次點擊播放時瀏覽器仍會跳出一次「是否允許開啟外部應用程式」的確認視窗，這是瀏覽器原生的安全機制，可勾選「一律允許」關閉提示。若清單中的播放器實際上未安裝在該裝置，點擊播放將不會有反應。
+
 ## 🛠️ 開發說明
 
 如果您需要自行編譯：

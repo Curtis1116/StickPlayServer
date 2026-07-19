@@ -104,9 +104,54 @@ export async function getStats(): Promise<[number, number]> {
     return post<[number, number]>("get_stats");
 }
 
-/// 在網頁直接開啟影片
+export type PlayerChoice = "browser" | "potplayer" | "vlc" | "infuse";
+
+const PLAYER_STORE_KEY = "stickplay_player";
+
+/// 判斷是否為 iOS / iPadOS（iPadOS 13+ 的 Safari 會偽裝成 Mac UA，需搭配觸控點數輔助判斷）
+export function isIOSDevice(): boolean {
+    const ua = navigator.userAgent;
+    if (/iPhone|iPad|iPod/.test(ua)) return true;
+    return navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1;
+}
+
+/// 依平台回傳此裝置可選的播放器清單（PotPlayer 僅 Windows 有，Infuse 僅 iOS/iPadOS/macOS 有）
+export function getAvailablePlayers(): PlayerChoice[] {
+    return isIOSDevice() ? ["browser", "vlc", "infuse"] : ["browser", "potplayer", "vlc"];
+}
+
+/// 讀取使用者選擇的播放器（存於本機瀏覽器 localStorage，每台裝置各自獨立）
+export function getPlayerPreference(): PlayerChoice {
+    const stored = localStorage.getItem(PLAYER_STORE_KEY) as PlayerChoice | null;
+    const available = getAvailablePlayers();
+    return stored && available.includes(stored) ? stored : "browser";
+}
+
+/// 儲存播放器選擇
+export function setPlayerPreference(player: PlayerChoice): void {
+    localStorage.setItem(PLAYER_STORE_KEY, player);
+}
+
+/// 依設定開啟影片：瀏覽器分頁播放，或喚起本機播放器並帶入影片網址
 export async function openVideo(path: string): Promise<void> {
-    window.open(`/api/video?path=${encodeURIComponent(path)}`, '_blank');
+    const absoluteUrl = `${window.location.origin}/api/video?path=${encodeURIComponent(path)}`;
+    const player = getPlayerPreference();
+
+    switch (player) {
+        case "potplayer":
+            window.location.href = `stickplay-potplayer:${encodeURIComponent(absoluteUrl)}`;
+            break;
+        case "vlc":
+            window.location.href = isIOSDevice()
+                ? `vlc-x-callback://x-callback-url/stream?url=${encodeURIComponent(absoluteUrl)}`
+                : `stickplay-vlc:${encodeURIComponent(absoluteUrl)}`;
+            break;
+        case "infuse":
+            window.location.href = `infuse://x-callback-url/play?url=${encodeURIComponent(absoluteUrl)}`;
+            break;
+        default:
+            window.open(absoluteUrl, "_blank");
+    }
 }
 
 /// 在網頁無法直接打開檔案管理員，發出提醒

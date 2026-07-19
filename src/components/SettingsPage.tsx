@@ -1,9 +1,16 @@
-import { FolderPlus, Trash2, FolderOpen, ArrowLeft, Plus } from "lucide-react";
+import { FolderPlus, Trash2, FolderOpen, ArrowLeft, Plus, PlayCircle } from "lucide-react";
 
 import { Library } from "../types";
-import { deleteDatabase } from "../api";
+import { deleteDatabase, PlayerChoice, getAvailablePlayers, getPlayerPreference, setPlayerPreference } from "../api";
 import { useState, useEffect } from "react";
 import FolderPickerModal from "./FolderPickerModal";
+
+const PLAYER_LABELS: Record<PlayerChoice, string> = {
+    browser: "瀏覽器",
+    potplayer: "PotPlayer",
+    vlc: "VLC",
+    infuse: "Infuse",
+};
 
 interface SettingsPageProps {
     libraries: Library[];
@@ -57,6 +64,13 @@ export default function SettingsPage({
 }: SettingsPageProps) {
     const [showFolderPicker, setShowFolderPicker] = useState(false);
     const [activeLibIndex, setActiveLibIndex] = useState<number | null>(null);
+    const [player, setPlayer] = useState<PlayerChoice>(getPlayerPreference());
+    const availablePlayers = getAvailablePlayers();
+
+    const handlePlayerChange = (p: PlayerChoice) => {
+        setPlayer(p);
+        setPlayerPreference(p);
+    };
 
     const saveLibraries = async (newLibs: Library[]) => {
         try {
@@ -237,6 +251,29 @@ export default function SettingsPage({
                         ))}
                     </div>
                 )}
+            </div>
+
+            {/* 播放器設定 */}
+            <div className="glass-panel rounded-2xl p-6 mt-6">
+                <div className="flex items-center gap-2 mb-4">
+                    <PlayCircle size={18} className="text-indigo-400" />
+                    <h2 className="text-base font-bold">播放器設定</h2>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                    {availablePlayers.map((p) => (
+                        <button
+                            key={p}
+                            onClick={() => handlePlayerChange(p)}
+                            className={`px-4 py-2 rounded-xl text-sm font-bold transition-colors border ${
+                                player === p
+                                    ? "bg-indigo-500 border-indigo-500 text-white"
+                                    : "bg-zinc-900 border-zinc-800 text-zinc-300 hover:bg-zinc-800"
+                            }`}
+                        >
+                            {PLAYER_LABELS[p]}
+                        </button>
+                    ))}
+                </div>
             </div>
 
             {/* 提示 */}
