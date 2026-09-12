@@ -28,7 +28,8 @@ pub fn scan_library_paths(db: &Database, paths: &[String]) -> Result<usize, Stri
 
 fn scan_library_paths_inner(db: &Database, paths: &[String]) -> Result<usize, String> {
     if paths.is_empty() {
-        crate::app_log!("[SCAN] 掃描路徑為空，跳過。");
+        let deleted = db.prune_missing_videos(paths).map_err(|e| e.to_string())?;
+        crate::app_log!("[SCAN] 掃描路徑為空，已清除 {} 筆索引。", deleted);
         return Ok(0);
     }
     crate::app_log!("[SCAN] 開始大批掃描, 路徑集: {:?}", paths);
@@ -75,6 +76,7 @@ pub fn scan_single_folder(
     dir_path: &Path,
     _force_regen_poster: bool,
 ) -> Result<(), String> {
+    crate::security::media_path(dir_path)?;
     // 尋找影片檔
     let video_path = find_video_file(dir_path).ok_or_else(|| "資料夾內無影片檔".to_string())?;
 
@@ -94,15 +96,26 @@ pub fn scan_single_folder(
         .and_then(|p| parse_nfo(Path::new(p)).ok())
         .unwrap_or_default();
 
-    let id = nfo_data.num.clone()
+    let id = nfo_data
+        .num
+        .clone()
         .or_else(|| folder_meta.as_ref().map(|m| m.id.clone()))
         .unwrap_or_else(|| folder_name.clone());
 
-    let level = nfo_data.level.clone()
+    let level = nfo_data
+        .level
+        .clone()
         .or_else(|| folder_meta.as_ref().map(|m| m.level.clone()))
         .unwrap_or_default();
 
-    let is_uncensored = nfo_data.is_uncensored || folder_meta.as_ref().map(|m| m.is_uncensored).unwrap_or(false);
+    let is_uncensored = nfo_data.uncensored_override.unwrap_or(
+        nfo_data.is_uncensored
+            || nfo_data.genres.iter().any(|g| g == "無碼")
+            || folder_meta
+                .as_ref()
+                .map(|m| m.is_uncensored)
+                .unwrap_or(false),
+    );
 
     // 尋找海報圖
     let poster_path = find_best_poster(dir_path, &video_path);
@@ -112,23 +125,26 @@ pub fn scan_single_folder(
         let thumbnail_dir = db.thumbnail_dir();
         let safe_id = id.replace("/", "_").replace("\\", "_").replace(":", "_");
         let thumb_path = thumbnail_dir.join(format!("{}.jpg", safe_id));
-        
+
         if !thumb_path.exists() {
             crate::app_log!("[THUMB] 正在為 [{}] 產生縮圖...", id);
             match std::fs::read(p) {
-                Ok(bytes) => {
-                    match image::load_from_memory(&bytes) {
-                        Ok(img) => {
-                            let thumb = img.thumbnail(300, 450);
-                            if let Err(e) = thumb.save(&thumb_path) {
-                                crate::app_log!("[THUMB] [{}] 縮圖儲存失敗 ({:?}): {}", id, thumb_path, e);
-                            }
-                        }
-                        Err(e) => {
-                            crate::app_log!("[THUMB] [{}] 海報圖解碼失敗 ({:?}): {}", id, p, e);
+                Ok(bytes) => match image::load_from_memory(&bytes) {
+                    Ok(img) => {
+                        let thumb = img.thumbnail(300, 450);
+                        if let Err(e) = thumb.save(&thumb_path) {
+                            crate::app_log!(
+                                "[THUMB] [{}] 縮圖儲存失敗 ({:?}): {}",
+                                id,
+                                thumb_path,
+                                e
+                            );
                         }
                     }
-                }
+                    Err(e) => {
+                        crate::app_log!("[THUMB] [{}] 海報圖解碼失敗 ({:?}): {}", id, p, e);
+                    }
+                },
                 Err(e) => {
                     crate::app_log!("[THUMB] [{}] 讀取海報圖失敗 ({:?}): {}", id, p, e);
                 }
@@ -137,7 +153,7 @@ pub fn scan_single_folder(
     }
 
     let mut genres = Vec::new();
-    let has_nfo_uncensored = nfo_data.genres.iter().any(|g| g == "無碼") || is_uncensored;
+    let has_nfo_uncensored = is_uncensored;
     if has_nfo_uncensored {
         genres.push("無碼".to_string());
     }
@@ -183,7 +199,13 @@ fn find_video_file(dir: &Path) -> Option<String> {
     let entries = std::fs::read_dir(dir).ok()?;
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.is_file() {
+        if path.is_file()
+            && crate::security::media_path(&path).ok().is_some_and(|p| {
+                dir.canonicalize()
+                    .ok()
+                    .is_some_and(|root| p.starts_with(root))
+            })
+        {
             if let Some(ext) = path.extension() {
                 let ext_lower = ext.to_string_lossy().to_lowercase();
                 if VIDEO_EXTENSIONS.contains(&ext_lower.as_str()) {
@@ -199,7 +221,13 @@ fn find_file_by_ext(dir: &Path, ext_target: &str) -> Option<String> {
     let entries = std::fs::read_dir(dir).ok()?;
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.is_file() {
+        if path.is_file()
+            && crate::security::media_path(&path).ok().is_some_and(|p| {
+                dir.canonicalize()
+                    .ok()
+                    .is_some_and(|root| p.starts_with(root))
+            })
+        {
             if let Some(ext) = path.extension() {
                 if ext.to_string_lossy().to_lowercase() == ext_target {
                     return Some(path.to_string_lossy().to_string());
@@ -215,11 +243,21 @@ fn collect_images(dir: &Path) -> Vec<PathBuf> {
     if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.is_file() {
+            if path.is_file()
+                && crate::security::media_path(&path).ok().is_some_and(|p| {
+                    dir.canonicalize()
+                        .ok()
+                        .is_some_and(|root| p.starts_with(root))
+                })
+            {
                 if let Some(ext) = path.extension() {
                     let ext_lower = ext.to_string_lossy().to_lowercase();
                     if IMAGE_EXTENSIONS.contains(&ext_lower.as_str()) {
-                        let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or_default().to_lowercase();
+                        let stem = path
+                            .file_stem()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or_default()
+                            .to_lowercase();
                         if stem != "stick_poster" {
                             images.push(path);
                         }
@@ -240,7 +278,11 @@ fn find_best_poster(dir: &Path, video_path: &str) -> Option<String> {
 
     // 1. 尋找 poster.jpg（最優先）
     for img in &images {
-        let stem = img.file_stem().and_then(|s| s.to_str()).unwrap_or_default().to_lowercase();
+        let stem = img
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or_default()
+            .to_lowercase();
         if stem == "poster" {
             return Some(img.to_string_lossy().to_string());
         }
@@ -264,9 +306,16 @@ fn find_best_poster(dir: &Path, video_path: &str) -> Option<String> {
     }
 
     // 3. 最後退而求其次，尋找與影片同名的圖片
-    let video_stem = Path::new(video_path).file_stem().and_then(|s| s.to_str()).map(|s| s.to_lowercase());
+    let video_stem = Path::new(video_path)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .map(|s| s.to_lowercase());
     for img in &images {
-        let stem = img.file_stem().and_then(|s| s.to_str()).unwrap_or_default().to_lowercase();
+        let stem = img
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or_default()
+            .to_lowercase();
         if let Some(ref vs) = video_stem {
             if stem == *vs {
                 return Some(img.to_string_lossy().to_string());

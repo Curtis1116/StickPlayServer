@@ -25,3 +25,10 @@ dist-ssr
 docker-compose.yml
 *.tar
 stickplay_image.tar
+
+# Build and private runtime state
+src-tauri/target/
+config/auth.db*
+config/backups/
+__pycache__/
+*.pyc

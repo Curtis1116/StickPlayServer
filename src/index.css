@@ -10,11 +10,12 @@
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    color-scheme: dark;
 }
 
 body {
     margin: 0;
-    background-color: #09090b;
+    background-color: #0d0e12;
     color: #fafafa;
     min-height: 100dvh;
     overflow-x: clip;
@@ -51,8 +52,10 @@ body {
     transition: transform 0.3s ease, box-shadow 0.3s ease;
 }
 
-.movie-card:hover {
-    transform: translateY(-4px);
+@media (hover: hover) and (pointer: fine) {
+    .movie-card:hover {
+        transform: translateY(-4px);
+    }
 }
 
 /* 我的最愛星號 */
@@ -127,3 +130,8 @@ input[type="range"] {
     align-items: center;
     justify-content: center;
 }
+.auth-input { display:block; width:100%; margin-top:.4rem; padding:.65rem .8rem; background:#09090b; border:1px solid #3f3f46; border-radius:.5rem; color:#fafafa; font-size:1rem; }
+.auth-input:focus-visible { outline:2px solid #818cf8; outline-offset:2px; }
+.auth-button { padding:.7rem 1rem; border-radius:.5rem; background:#4f46e5; color:white; font-weight:600; }
+.auth-button:disabled { opacity:.5; }
+button:focus-visible, summary:focus-visible { outline:2px solid #818cf8; outline-offset:3px; }

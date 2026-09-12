@@ -1,4 +1,22 @@
 import { VideoEntry, VideoFilter } from "./types";
+import {
+    androidIntentUrl,
+    detectDevicePlatform,
+    getPlayerPreference,
+} from "./player";
+export {
+    getAvailablePlayers,
+    getPlayerPreference,
+    setPlayerPreference,
+    type PlayerChoice,
+} from "./player";
+
+import { csrfToken, expired, refreshSession } from "./auth";
+let libraryId = "";
+let switchSequence = 0;
+export function selectedLibrary() { return libraryId; }
+export function clearLibrary() { libraryId = ""; }
+export function scopedUrl(path: string) { return `${path}${path.includes("?") ? "&" : "?"}libraryId=${encodeURIComponent(libraryId)}`; }
 
 const API_BASE = "/api";
 
@@ -6,10 +24,13 @@ async function post<T>(endpoint: string, payload?: any): Promise<T> {
     const res = await fetch(`${API_BASE}/${endpoint}`, {
         method: 'POST',
         headers: {
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': csrfToken(),
+            'X-Library-Id': libraryId
         },
         body: payload ? JSON.stringify(payload) : undefined
     });
+    if (res.status === 401) expired();
     if (!res.ok) {
         throw new Error(await res.text() || res.statusText);
     }
@@ -104,59 +125,51 @@ export async function getStats(): Promise<[number, number]> {
     return post<[number, number]>("get_stats");
 }
 
-export type PlayerChoice = "browser" | "potplayer" | "vlc" | "infuse";
-
-const PLAYER_STORE_KEY = "stickplay_player";
-
-/// 判斷是否為 iOS / iPadOS（iPadOS 13+ 的 Safari 會偽裝成 Mac UA，需搭配觸控點數輔助判斷）
 export function isIOSDevice(): boolean {
-    const ua = navigator.userAgent;
-    if (/iPhone|iPad|iPod/.test(ua)) return true;
-    return navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1;
+    return detectDevicePlatform() === "ios";
 }
 
 /// 判斷是否為 Windows 桌面瀏覽器（用於放大海報卡片的顯示尺寸；300x450 縮圖本身
 /// 解析度已足夠，純粹是卡片版面在 Windows 下顯示更大張）
 export function isWindowsDevice(): boolean {
-    return /Windows NT/i.test(navigator.userAgent);
-}
-
-/// 依平台回傳此裝置可選的播放器清單（PotPlayer 僅 Windows 有，Infuse 僅 iOS/iPadOS/macOS 有）
-export function getAvailablePlayers(): PlayerChoice[] {
-    return isIOSDevice() ? ["browser", "vlc", "infuse"] : ["browser", "potplayer", "vlc"];
-}
-
-/// 讀取使用者選擇的播放器（存於本機瀏覽器 localStorage，每台裝置各自獨立）
-export function getPlayerPreference(): PlayerChoice {
-    const stored = localStorage.getItem(PLAYER_STORE_KEY) as PlayerChoice | null;
-    const available = getAvailablePlayers();
-    return stored && available.includes(stored) ? stored : "browser";
-}
-
-/// 儲存播放器選擇
-export function setPlayerPreference(player: PlayerChoice): void {
-    localStorage.setItem(PLAYER_STORE_KEY, player);
+    return detectDevicePlatform() === "windows";
 }
 
 /// 依設定開啟影片：瀏覽器分頁播放，或喚起本機播放器並帶入影片網址
-export async function openVideo(path: string): Promise<void> {
-    const absoluteUrl = `${window.location.origin}/api/video?path=${encodeURIComponent(path)}`;
+export async function openVideo(path: string, videoId: string): Promise<void> {
     const player = getPlayerPreference();
+    const popup = player === 'browser' ? window.open('about:blank', '_blank') : null;
+    if (popup) popup.opener = null;
+    let absoluteUrl: string;
+    try {
+        absoluteUrl = window.location.origin + (player === 'browser' ? scopedUrl(`/api/video?path=${encodeURIComponent(path)}`) : await post<string>('playback-tickets', { videoId }));
+    } catch (e) { popup?.close(); throw e; }
 
     switch (player) {
         case "potplayer":
             window.location.href = `stickplay-potplayer:${encodeURIComponent(absoluteUrl)}`;
             break;
         case "vlc":
-            window.location.href = isIOSDevice()
-                ? `vlc-x-callback://x-callback-url/stream?url=${encodeURIComponent(absoluteUrl)}`
-                : `stickplay-vlc:${encodeURIComponent(absoluteUrl)}`;
+            switch (detectDevicePlatform()) {
+                case "ios":
+                    window.location.href = `vlc-x-callback://x-callback-url/stream?url=${encodeURIComponent(absoluteUrl)}`;
+                    break;
+                case "android":
+                    window.location.href = androidIntentUrl(absoluteUrl, "org.videolan.vlc");
+                    break;
+                default:
+                    window.location.href = `stickplay-vlc:${encodeURIComponent(absoluteUrl)}`;
+            }
             break;
         case "infuse":
             window.location.href = `infuse://x-callback-url/play?url=${encodeURIComponent(absoluteUrl)}`;
             break;
+        case "justplayer":
+            window.location.href = androidIntentUrl(absoluteUrl, "com.brouken.player");
+            break;
         default:
-            window.open(absoluteUrl, "_blank");
+            if (popup) popup.location.href = absoluteUrl;
+            else throw new Error("請允許彈出視窗以播放影片");
     }
 }
 
@@ -167,11 +180,14 @@ export async function openFolder(path: string): Promise<void> {
 }
 
 export async function switchDatabase(dbName: string): Promise<void> {
-    return post<void>("switch_database", { dbName });
+    const sequence = ++switchSequence;
+    const id = await post<string>("switch_database", { dbName });
+    if (sequence !== switchSequence) throw new Error("已改為切換至其他媒體庫");
+    libraryId = id;
 }
 
-export async function deleteDatabase(dbName: string): Promise<void> {
-    return post<void>("delete_database", { dbName });
+export async function deleteDatabase(dbName: string): Promise<import("./types").Library[]> {
+    return post<import("./types").Library[]>("delete_database", { dbName });
 }
 
 /// 回傳圖片伺服器網址
@@ -182,7 +198,7 @@ export async function readImage(path: string, id?: string, thumb: boolean = true
     if (id) url += `&id=${encodeURIComponent(id)}`;
     if (thumb) url += `&thumb=true`;
     if (version) url += `&v=${version}`;
-    return url;
+    return scopedUrl(url);
 }
 
 /// 列出伺服器資料夾
@@ -197,7 +213,10 @@ export async function syncWatchPaths(paths: string[]): Promise<void> {
 
 /// 訂閱 SSE 即時通知（媒體庫變更時自動觸發 onUpdate）
 export function subscribeToEvents(onUpdate: () => void): () => void {
-    const es = new EventSource('/api/events');
+    if (!libraryId) return () => {};
+    const es = new EventSource(scopedUrl('/api/events'));
+    const close = () => es.close();
+    window.addEventListener('stickplay-auth-expired', close);
     es.onmessage = (e) => {
         if (e.data === 'library_updated') {
             console.log('[SSE] 收到媒體庫更新通知');
@@ -205,9 +224,9 @@ export function subscribeToEvents(onUpdate: () => void): () => void {
         }
     };
     es.onerror = () => {
-        console.warn('[SSE] 連線中斷，將自動重連');
+        refreshSession().catch(() => { es.close(); expired(); });
     };
-    return () => es.close();
+    return () => { es.close(); window.removeEventListener('stickplay-auth-expired', close); };
 }
 
 /// 取得伺服器儲存的媒體庫清單
@@ -258,4 +277,3 @@ export async function moveVideoFolder(
         targetParentFolder
     });
 }
-

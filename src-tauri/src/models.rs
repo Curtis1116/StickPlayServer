@@ -27,6 +27,7 @@ pub struct NfoData {
     pub title: String,
     pub level: Option<String>,
     pub is_uncensored: bool,
+    pub uncensored_override: Option<bool>,
     pub actors: Vec<String>,
     pub genres: Vec<String>,
     pub rating: Option<f64>,

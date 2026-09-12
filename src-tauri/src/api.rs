@@ -1,20 +1,50 @@
 use axum::{
     extract::{Query, Request, State},
     http::StatusCode,
-    response::{IntoResponse, Sse, sse::Event},
-    Json,
+    response::{sse::Event, IntoResponse, Sse},
+    Extension, Json,
 };
-use serde::{Deserialize, Serialize};
-use std::sync::Arc;
-use std::path::{Path, PathBuf};
-use tower_http::services::ServeFile;
-use tower::ServiceExt;
 use futures_util::stream::Stream;
+use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use tower::ServiceExt;
+use tower_http::services::ServeFile;
 
-use crate::models::{VideoEntry, VideoFilter, Library};
+use crate::models::{VideoEntry, VideoFilter};
 use crate::parser::{update_nfo, update_nfo_full};
 use crate::scanner::scan_single_folder;
-use crate::AppState;
+use crate::{security, AppState, ServerState};
+fn checked(state: &AppState, path: &str) -> Result<PathBuf, ApiError> {
+    let roots = state
+        .watch_paths
+        .lock()
+        .unwrap()
+        .iter()
+        .cloned()
+        .collect::<Vec<_>>();
+    security::within(Path::new(path), &roots).map_err(|e| (StatusCode::FORBIDDEN, e))
+}
+fn video(state: &AppState, id: &str) -> Result<VideoEntry, ApiError> {
+    state
+        .db
+        .query_videos(&VideoFilter::default())
+        .map_err(map_err)?
+        .into_iter()
+        .find(|v| v.id == id)
+        .ok_or_else(|| (StatusCode::NOT_FOUND, "找不到影片".into()))
+}
+fn nfo_target(state: &AppState, v: &VideoEntry) -> Result<PathBuf, ApiError> {
+    let path = v.nfo_path.clone().unwrap_or_else(|| {
+        Path::new(&v.folder_path)
+            .join("movie.nfo")
+            .to_string_lossy()
+            .into_owned()
+    });
+    let path = checked(state, &path)?;
+    security::extension(&path, &["nfo"]).map_err(map_err)?;
+    Ok(path)
+}
 
 type ApiError = (StatusCode, String);
 type ApiResult<T> = Result<Json<T>, ApiError>;
@@ -41,40 +71,42 @@ pub struct ScanPathsPayload {
 }
 
 pub async fn scan_library(
-    State(state): State<Arc<AppState>>,
+    Extension(state): Extension<Arc<AppState>>,
     Json(payload): Json<ScanPathsPayload>,
 ) -> ApiResult<usize> {
+    for path in &payload.paths {
+        checked(&state, path)?;
+    }
     crate::scanner::scan_library_paths(&state.db, &payload.paths)
         .map(Json)
         .map_err(map_err)
 }
 
 pub async fn sync_watch_paths(
-    State(state): State<Arc<AppState>>,
+    Extension(state): Extension<Arc<AppState>>,
     Json(payload): Json<ScanPathsPayload>,
 ) -> ApiResult<()> {
-    crate::app_log!("API: sync_watch_paths: {:?}", payload.paths);
-    
-    let mut watch_paths = state.watch_paths.lock().unwrap();
-    watch_paths.clear();
-    for p in payload.paths {
-        if !p.is_empty() {
-            watch_paths.insert(p);
-        }
+    let configured = state.watch_paths.lock().unwrap();
+    if payload.paths.iter().any(|p| !configured.contains(p)) {
+        return Err((StatusCode::BAD_REQUEST, "請先儲存媒體庫設定".into()));
     }
-    
     Ok(Json(()))
 }
 
 /// SSE endpoint：讓前端即時收到媒體庫變更通知
 pub async fn events(
-    State(state): State<Arc<AppState>>,
+    State(server): State<Arc<ServerState>>,
+    Extension(session): Extension<crate::auth::Session>,
+    Extension(state): Extension<Arc<AppState>>,
 ) -> Sse<impl Stream<Item = Result<Event, std::convert::Infallible>>> {
     let mut rx = state.event_tx.subscribe();
 
     let stream = async_stream::stream! {
         loop {
-            match rx.recv().await {
+            if !server.auth.active(&session.id) { break; }
+            match tokio::time::timeout(std::time::Duration::from_secs(30), rx.recv()).await {
+                Err(_) => { yield Ok(Event::default().comment("keepalive")); continue; }
+                Ok(message) => match message {
                 Ok(msg) => {
                     yield Ok(Event::default().data(msg));
                 }
@@ -83,6 +115,7 @@ pub async fn events(
                     continue;
                 }
                 Err(_) => break,
+                }
             }
         }
     };
@@ -97,11 +130,12 @@ pub struct RescanPayload {
 }
 
 pub async fn rescan_single_video(
-    State(state): State<Arc<AppState>>,
+    Extension(state): Extension<Arc<AppState>>,
     Json(payload): Json<RescanPayload>,
 ) -> ApiResult<VideoEntry> {
-    let dir = std::path::Path::new(&payload.folder_path);
-    if !dir.exists() || !dir.is_dir() {
+    let resolved = checked(&state, &payload.folder_path)?;
+    let dir = resolved.as_path();
+    if dir.try_exists().map_err(map_err)? == false || !dir.is_dir() {
         let conn = state.db.conn.lock().unwrap();
         let _ = conn.execute(
             "DELETE FROM videos WHERE folder_path = ?1",
@@ -122,18 +156,7 @@ pub async fn rescan_single_video(
         return Err(map_err(e));
     }
 
-    let filter = VideoFilter {
-        search: Some(
-            dir.file_name()
-                .map(|n| n.to_string_lossy().to_string())
-                .unwrap_or_default(),
-        ),
-        genres: None,
-        levels: None,
-        sort_by: None,
-        sort_order: None,
-        favorites_only: None,
-    };
+    let filter = VideoFilter::default();
     let videos = state.db.query_videos(&filter).map_err(map_err)?;
 
     let entry = videos
@@ -151,10 +174,14 @@ pub struct QueryPayload {
 }
 
 pub async fn query_videos(
-    State(state): State<Arc<AppState>>,
+    Extension(state): Extension<Arc<AppState>>,
     Json(payload): Json<QueryPayload>,
 ) -> ApiResult<Vec<VideoEntry>> {
-    state.db.query_videos(&payload.filter).map(Json).map_err(map_err)
+    state
+        .db
+        .query_videos(&payload.filter)
+        .map(Json)
+        .map_err(map_err)
 }
 
 #[derive(Deserialize)]
@@ -165,9 +192,11 @@ pub struct GetFanartPayload {
 }
 
 pub async fn get_fanart_path(
+    Extension(state): Extension<Arc<AppState>>,
     Json(payload): Json<GetFanartPayload>,
 ) -> ApiResult<String> {
-    let folder = Path::new(&payload.folder_path);
+    let resolved = checked(&state, &payload.folder_path)?;
+    let folder = resolved.as_path();
     if !folder.exists() || !folder.is_dir() {
         return Err(map_err("資料夾不存在"));
     }
@@ -187,7 +216,7 @@ pub async fn get_fanart_path(
     if let Ok(entries) = std::fs::read_dir(folder) {
         for entry in entries.filter_map(|e| e.ok()) {
             let path = entry.path();
-            if path.is_file() {
+            if path.is_file() && checked(&state, &path.to_string_lossy()).is_ok() {
                 if let Some(ext) = path
                     .extension()
                     .and_then(|e| e.to_str())
@@ -245,52 +274,55 @@ pub struct UpdateVideoInfoPayload {
 }
 
 pub async fn update_video_info(
-    State(state): State<Arc<AppState>>,
+    Extension(state): Extension<Arc<AppState>>,
     Json(payload): Json<UpdateVideoInfoPayload>,
 ) -> ApiResult<String> {
-    if payload.original_id != payload.video_id {
-        let conn = state.db.conn.lock().unwrap();
-        let _ = conn.execute(
-            "UPDATE videos SET id = ?1 WHERE id = ?2",
-            rusqlite::params![payload.video_id, payload.original_id],
-        );
-        let _ = conn.execute(
-            "UPDATE video_actors SET video_id = ?1 WHERE video_id = ?2",
-            rusqlite::params![payload.video_id, payload.original_id],
-        );
-        let _ = conn.execute(
-            "UPDATE video_genres SET video_id = ?1 WHERE video_id = ?2",
-            rusqlite::params![payload.video_id, payload.original_id],
-        );
+    let original = video(&state, &payload.original_id)?;
+    if payload.video_id.trim().is_empty()
+        || payload.video_id.len() > 128
+        || payload.actors.len() > 100
+        || !(0..=100).contains(&payload.criticrating)
+    {
+        return Err((StatusCode::BAD_REQUEST, "影片資訊格式無效".into()));
     }
-
-    let target_nfo = if let Some(ref nfo) = payload.nfo_path {
-        nfo.clone()
-    } else {
-        let folder_p = Path::new(&payload.folder_path);
-        // 優先尋找資料夾內已存在的任何 .nfo 檔
-        let mut found_nfo = None;
-        if let Ok(entries) = std::fs::read_dir(folder_p) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_file() && path.extension().map_or(false, |e| e.to_string_lossy().to_lowercase() == "nfo") {
-                    found_nfo = Some(path.to_string_lossy().to_string());
-                    break;
-                }
-            }
+    let target = nfo_target(&state, &original)?;
+    let mut guard = state.db.conn.lock().unwrap();
+    let tx = guard.transaction().map_err(map_err)?;
+    if original.id != payload.video_id {
+        let exists: bool = tx
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM videos WHERE id=?1)",
+                [&payload.video_id],
+                |r| r.get(0),
+            )
+            .map_err(map_err)?;
+        if exists {
+            return Err((StatusCode::CONFLICT, "影片 ID 已存在，請使用其他 ID".into()));
         }
-        
-        found_nfo.unwrap_or_else(|| {
-            folder_p
-                .join(format!("{}.nfo", payload.video_id))
-                .to_string_lossy()
-                .to_string()
-        })
-    };
-
-    let nfo_p = Path::new(&target_nfo);
+    }
+    let level = payload.level.trim_end_matches(['X', 'x']);
+    tx.execute("UPDATE videos SET id=?1,title=?2,level=?3,rating=?4,criticrating=?5,release_date=?6,date_added=?7,is_favorite=?8,nfo_path=?9,nfos_path=NULL WHERE id=?10",
+        rusqlite::params![payload.video_id,payload.title,level,payload.criticrating as f64 / 10.0,payload.criticrating,payload.release_date,payload.date_added,payload.is_favorite,target.to_string_lossy(),original.id]).map_err(map_err)?;
+    tx.execute("DELETE FROM video_actors WHERE video_id=?1", [&original.id])
+        .map_err(map_err)?;
+    tx.execute("DELETE FROM video_genres WHERE video_id=?1", [&original.id])
+        .map_err(map_err)?;
+    for actor in &payload.actors {
+        tx.execute(
+            "INSERT OR IGNORE INTO video_actors VALUES(?1,?2)",
+            rusqlite::params![payload.video_id, actor],
+        )
+        .map_err(map_err)?;
+    }
+    if payload.is_uncensored {
+        tx.execute(
+            "INSERT INTO video_genres VALUES(?1,'無碼')",
+            [&payload.video_id],
+        )
+        .map_err(map_err)?;
+    }
     update_nfo_full(
-        nfo_p,
+        &target,
         &payload.video_id,
         payload.rating,
         Some(payload.criticrating),
@@ -298,52 +330,12 @@ pub async fn update_video_info(
         &payload.release_date,
         &payload.date_added,
         payload.is_uncensored,
-    ).map_err(map_err)?;
-
-    let mut new_genres = Vec::new();
-    if let Ok(conn) = state.db.conn.lock() {
-        if let Ok(mut stmt) = conn.prepare("SELECT genre FROM video_genres WHERE video_id = ?1") {
-            if let Ok(rows) =
-                stmt.query_map(rusqlite::params![&payload.video_id], |row| row.get::<_, String>(0))
-            {
-                new_genres = rows.filter_map(|r| r.ok()).collect();
-            }
-        }
-    }
-
-    new_genres.retain(|g| g != "無碼");
-    if payload.is_uncensored {
-        new_genres.push("無碼".to_string());
-    }
-
-    state.db.upsert_video(
-        &payload.video_id,
         &payload.title,
-        &payload.level,
-        Some(payload.rating),
-        &payload.release_date,
-        &payload.date_added,
-        &payload.video_path,
-        &payload.folder_path,
-        payload.poster_path.as_deref(),
-        Some(&target_nfo),
-        None, // 徹底拋棄 nfos_path
-        &payload.actors,
-        &new_genres,
-        payload.criticrating,
+        level,
     )
     .map_err(map_err)?;
-
-    {
-        let conn = state.db.conn.lock().unwrap();
-        conn.execute(
-            "UPDATE videos SET is_favorite = ?1 WHERE id = ?2",
-            rusqlite::params![if payload.is_favorite { 1 } else { 0 }, payload.video_id],
-        )
-        .map_err(map_err)?;
-    }
-
-    Ok(Json(target_nfo))
+    tx.commit().map_err(map_err)?;
+    Ok(Json(target.to_string_lossy().into_owned()))
 }
 
 #[derive(Deserialize)]
@@ -358,59 +350,39 @@ pub struct UpdateRatingPayload {
 }
 
 pub async fn update_rating(
-    State(state): State<Arc<AppState>>,
+    Extension(state): Extension<Arc<AppState>>,
     Json(payload): Json<UpdateRatingPayload>,
 ) -> ApiResult<String> {
-    state.db.update_rating(&payload.video_id, payload.rating, payload.criticrating)
-        .map_err(map_err)?;
-
-    let target_nfo = if let Some(ref nfo) = payload.nfo_path {
-        nfo.clone()
-    } else if let Some(ref folder) = payload.folder_path {
-        let folder_p = Path::new(folder);
-        let mut found_nfo = None;
-        if let Ok(entries) = std::fs::read_dir(folder_p) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_file() && path.extension().map_or(false, |e| e.to_string_lossy().to_lowercase() == "nfo") {
-                    found_nfo = Some(path.to_string_lossy().to_string());
-                    break;
-                }
-            }
-        }
-
-        found_nfo.unwrap_or_else(|| {
-            folder_p
-                .join(format!("{}.nfo", payload.video_id))
-                .to_string_lossy()
-                .to_string()
-        })
-    } else {
-        return Ok(Json(String::new()));
-    };
-
-    let nfo_p = Path::new(&target_nfo);
-    let existing_date_added = crate::parser::parse_nfo(nfo_p)
-        .map(|d| d.date_added)
-        .unwrap_or_default();
-    update_nfo(nfo_p, &payload.video_id, payload.rating, Some(payload.criticrating), &existing_date_added).map_err(map_err)?;
-
-    {
-        let conn = state.db.conn.lock().unwrap();
-        conn.execute(
-            "UPDATE videos SET nfo_path = ?1, nfos_path = NULL WHERE id = ?2",
-            rusqlite::params![target_nfo, payload.video_id],
+    let original = video(&state, &payload.video_id)?;
+    let target = nfo_target(&state, &original)?;
+    if !(0..=100).contains(&payload.criticrating) {
+        return Err((StatusCode::BAD_REQUEST, "評分無效".into()));
+    }
+    update_nfo(
+        &target,
+        &original.id,
+        payload.rating,
+        Some(payload.criticrating),
+        &original.date_added,
+    )
+    .map_err(map_err)?;
+    state
+        .db
+        .update_rating(
+            &original.id,
+            payload.criticrating as f64 / 10.0,
+            payload.criticrating,
         )
         .map_err(map_err)?;
-    }
-
-    Ok(Json(target_nfo))
+    Ok(Json(target.to_string_lossy().into_owned()))
 }
 
 pub async fn get_folder_images(
+    Extension(state): Extension<Arc<AppState>>,
     Json(payload): Json<RescanPayload>, // reuse the folder_path payload
 ) -> ApiResult<Vec<String>> {
-    let folder = Path::new(&payload.folder_path);
+    let resolved = checked(&state, &payload.folder_path)?;
+    let folder = resolved.as_path();
     if !folder.exists() || !folder.is_dir() {
         return Err(map_err("資料夾不存在"));
     }
@@ -419,7 +391,7 @@ pub async fn get_folder_images(
     if let Ok(entries) = std::fs::read_dir(folder) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.is_file() {
+            if path.is_file() && checked(&state, &path.to_string_lossy()).is_ok() {
                 if let Some(ext) = path
                     .extension()
                     .and_then(|e| e.to_str())
@@ -450,9 +422,28 @@ pub struct CropPayload {
 }
 
 pub async fn crop_and_save_poster(
-    State(state): State<Arc<AppState>>,
+    Extension(state): Extension<Arc<AppState>>,
     Json(payload): Json<CropPayload>,
 ) -> ApiResult<String> {
+    let original = video(
+        &state,
+        payload
+            .video_id
+            .as_deref()
+            .ok_or_else(|| map_err("請指定影片"))?,
+    )?;
+    if checked(&state, &original.folder_path)? != checked(&state, &payload.output_folder)? {
+        return Err((StatusCode::FORBIDDEN, "海報位置與影片不符".into()));
+    }
+    let image = checked(&state, &payload.image_path)?;
+    security::extension(&image, security::IMAGES).map_err(map_err)?;
+    checked(
+        &state,
+        &Path::new(&payload.output_folder)
+            .join("poster.jpg")
+            .to_string_lossy(),
+    )?;
+    let target_nfo = nfo_target(&state, &original)?;
     let state_cloned = Arc::clone(&state);
     let payload_cloned = payload;
 
@@ -466,7 +457,7 @@ pub async fn crop_and_save_poster(
         }
 
         let mut img = image::open(img_path).map_err(|e| e.to_string())?;
-        
+
         let (img_w, img_h) = img.dimensions();
         let safe_x = payload_cloned.x.min(img_w);
         let safe_y = payload_cloned.y.min(img_h);
@@ -478,7 +469,7 @@ pub async fn crop_and_save_poster(
         }
 
         let cropped = img.crop(safe_x, safe_y, safe_w, safe_h);
-        
+
         let out_dir = Path::new(&payload_cloned.output_folder);
         if !out_dir.exists() {
             return Err("輸出資料夾不存在".to_string());
@@ -494,65 +485,39 @@ pub async fn crop_and_save_poster(
             let _ = std::fs::remove_file(&stick_poster_path);
         }
 
-        // 尋找 NFO 路徑：優先依據 video_id 從資料庫查找
-        let mut nfo_path_opt = None;
-        let mut video_id_final = String::new();
-
-        if let Some(ref vid) = payload_cloned.video_id {
-            video_id_final = vid.clone();
-            // 從 DB 查找 NFO 路徑
-            if let Ok(videos) = state_cloned.db.query_videos(&VideoFilter {
-                search: Some(vid.clone()),
-                ..Default::default()
-            }) {
-                if let Some(v) = videos.iter().find(|v| v.id == *vid) {
-                    nfo_path_opt = v.nfo_path.clone().map(PathBuf::from);
-                }
-            }
-        }
-
-        // 如果 DB 沒找到或沒給 ID，嘗試在資料夾找第一個 .nfo
-        if nfo_path_opt.is_none() {
-            if let Ok(entries) = std::fs::read_dir(out_dir) {
-                for entry in entries.flatten() {
-                    let p = entry.path();
-                    if p.is_file() && p.extension().map_or(false, |e| e.to_string_lossy().to_lowercase() == "nfo") {
-                        if let Ok(nfo_data) = crate::parser::parse_nfo(&p) {
-                            if video_id_final.is_empty() {
-                                video_id_final = nfo_data.num.unwrap_or_default();
-                            }
-                            nfo_path_opt = Some(p);
-                            break;
-                        }
-                    }
-                }
-            }
-        }
+        let nfo_path_opt = Some(target_nfo);
+        let video_id_final = original.id;
 
         // 更新縮圖 (Thumbnail)
         if !video_id_final.is_empty() {
             let thumbnail_dir = state_cloned.db.thumbnail_dir();
             let _ = std::fs::create_dir_all(&thumbnail_dir);
-            let safe_id = video_id_final.replace("/", "_").replace("\\", "_").replace(":", "_");
+            let safe_id = video_id_final
+                .replace("/", "_")
+                .replace("\\", "_")
+                .replace(":", "_");
             let thumb_path = thumbnail_dir.join(format!("{}.jpg", safe_id));
             let _ = cropped.thumbnail(300, 450).save(&thumb_path);
         }
 
-        // 更新 NFO 標籤 (指向 poster.jpg)
         if let Some(nfo_p) = nfo_path_opt {
-             if let Ok(nfo_data) = crate::parser::parse_nfo(&nfo_p) {
-                 let _ = crate::parser::update_nfo(
-                    &nfo_p,
-                    nfo_data.num.as_deref().unwrap_or(""),
-                    nfo_data.rating.unwrap_or(0.0),
-                    nfo_data.criticrating,
-                    &nfo_data.date_added,
-                );
-             }
+            crate::parser::update_poster_nfo(&nfo_p)?;
         }
+        state_cloned
+            .db
+            .conn
+            .lock()
+            .unwrap()
+            .execute(
+                "UPDATE videos SET poster_path=?1 WHERE id=?2",
+                rusqlite::params![target_path.to_string_lossy(), video_id_final],
+            )
+            .map_err(|e| e.to_string())?;
 
         Ok(target_path.to_string_lossy().to_string())
-    }).await.map_err(|e| map_err(e))?;
+    })
+    .await
+    .map_err(|e| map_err(e))?;
 
     result.map(Json).map_err(map_err)
 }
@@ -564,64 +529,28 @@ pub struct ToggleFavoritePayload {
 }
 
 pub async fn toggle_favorite(
-    State(state): State<Arc<AppState>>,
+    Extension(state): Extension<Arc<AppState>>,
     Json(payload): Json<ToggleFavoritePayload>,
 ) -> ApiResult<bool> {
-    state.db.toggle_favorite(&payload.video_id).map(Json).map_err(map_err)
+    state
+        .db
+        .toggle_favorite(&payload.video_id)
+        .map(Json)
+        .map_err(map_err)
 }
 
-pub async fn get_all_genres(State(state): State<Arc<AppState>>) -> ApiResult<Vec<String>> {
+pub async fn get_all_genres(Extension(state): Extension<Arc<AppState>>) -> ApiResult<Vec<String>> {
     state.db.get_all_genres().map(Json).map_err(map_err)
 }
 
-pub async fn get_all_levels(State(state): State<Arc<AppState>>) -> ApiResult<Vec<String>> {
+pub async fn get_all_levels(Extension(state): Extension<Arc<AppState>>) -> ApiResult<Vec<String>> {
     state.db.get_all_levels().map(Json).map_err(map_err)
 }
 
-pub async fn get_stats(State(state): State<Arc<AppState>>) -> ApiResult<(usize, usize)> {
+pub async fn get_stats(Extension(state): Extension<Arc<AppState>>) -> ApiResult<(usize, usize)> {
     let total = state.db.get_video_count().map_err(map_err)?;
     let favs = state.db.get_favorite_count().map_err(map_err)?;
     Ok(Json((total, favs)))
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SwitchDbPayload {
-    pub db_name: String,
-}
-
-pub async fn switch_database(
-    State(state): State<Arc<AppState>>,
-    Json(payload): Json<SwitchDbPayload>,
-) -> ApiResult<()> {
-    state.db.switch_database(&payload.db_name).map_err(map_err)?;
-    state.db_switch_count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-    Ok(Json(()))
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DeleteDbPayload {
-    pub db_name: String,
-}
-
-pub async fn delete_database(
-    State(state): State<Arc<AppState>>,
-    Json(payload): Json<DeleteDbPayload>,
-) -> ApiResult<()> {
-    let db_path = state.db.app_data_dir.join(format!("{}.db", payload.db_name));
-    if db_path.exists() {
-        std::fs::remove_file(&db_path).map_err(map_err)?;
-    }
-    let wal_path = state.db.app_data_dir.join(format!("{}.db-wal", payload.db_name));
-    if wal_path.exists() {
-        std::fs::remove_file(wal_path).ok();
-    }
-    let shm_path = state.db.app_data_dir.join(format!("{}.db-shm", payload.db_name));
-    if shm_path.exists() {
-        std::fs::remove_file(shm_path).ok();
-    }
-    Ok(Json(()))
 }
 
 #[derive(Deserialize)]
@@ -641,36 +570,31 @@ pub struct DirEntry {
     pub is_dir: bool,
 }
 
-pub async fn list_dirs(
-    Json(payload): Json<ListDirsPayload>,
-) -> ApiResult<Vec<DirEntry>> {
-    let mut path_str = payload.path.unwrap_or_else(|| "/media".to_string());
-    
-    // Ensure path starts with /media
-    if !path_str.starts_with("/media") {
-        path_str = "/media".to_string();
-    }
-    
-    println!("API: list_dirs request for path: {}", path_str);
-    
-    let path = Path::new(&path_str);
-    
-    if !path.exists() {
-        return Err(map_err(format!("路徑不存在: {}", path_str)));
-    }
-
+pub async fn list_dirs(Json(payload): Json<ListDirsPayload>) -> ApiResult<Vec<DirEntry>> {
+    let path_str = payload.path.unwrap_or_else(|| {
+        std::env::var("STICKPLAY_MEDIA_DIR").unwrap_or_else(|_| "/media".into())
+    });
+    let resolved =
+        security::media_path(Path::new(&path_str)).map_err(|e| (StatusCode::FORBIDDEN, e))?;
+    let path = resolved.as_path();
     let mut entries_list = Vec::new();
     if let Ok(entries) = std::fs::read_dir(path) {
         for entry in entries.filter_map(|e| e.ok()) {
             let p = entry.path();
+            if security::media_path(&p).is_err() {
+                continue;
+            }
             entries_list.push(DirEntry {
-                name: p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(),
+                name: p
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_default(),
                 path: p.to_string_lossy().to_string(),
                 is_dir: p.is_dir(),
             });
         }
     }
-    
+
     // Sort: directories first, then files, then alphabetically
     entries_list.sort_by(|a, b| {
         if a.is_dir && !b.is_dir {
@@ -681,19 +605,36 @@ pub async fn list_dirs(
             a.name.to_lowercase().cmp(&b.name.to_lowercase())
         }
     });
-    
+
     println!("API: list_dirs found {} items", entries_list.len());
     Ok(Json(entries_list))
 }
 
-pub async fn serve_video_file(Query(query): Query<FileQuery>, req: Request) -> Result<axum::response::Response, ApiError> {
-    let path = PathBuf::from(query.path);
+pub async fn serve_video_file(
+    Extension(state): Extension<Arc<AppState>>,
+    Query(query): Query<FileQuery>,
+    req: Request,
+) -> Result<axum::response::Response, ApiError> {
+    let path = checked(&state, &query.path)?;
+    if !state
+        .db
+        .query_videos(&VideoFilter::default())
+        .map_err(map_err)?
+        .iter()
+        .any(|v| checked(&state, &v.video_path).ok().as_ref() == Some(&path))
+    {
+        return Err((StatusCode::NOT_FOUND, "影片尚未建立索引".into()));
+    }
+    security::extension(&path, security::VIDEOS).map_err(map_err)?;
     if !path.exists() {
         return Err((StatusCode::NOT_FOUND, "File not found".to_string()));
     }
     match ServeFile::new(path).oneshot(req).await {
         Ok(res) => Ok(res.into_response()),
-        Err(_) => Err((StatusCode::INTERNAL_SERVER_ERROR, "Error serving file".to_string())),
+        Err(_) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Error serving file".to_string(),
+        )),
     }
 }
 
@@ -717,10 +658,12 @@ fn with_no_cache(mut res: axum::response::Response) -> axum::response::Response 
 }
 
 pub async fn serve_image_file(
-    State(state): State<Arc<AppState>>,
+    Extension(state): Extension<Arc<AppState>>,
     Query(query): Query<ImageQuery>,
-    req: Request
+    req: Request,
 ) -> Result<axum::response::Response, ApiError> {
+    let path = checked(&state, &query.path)?;
+    security::extension(&path, security::IMAGES).map_err(map_err)?;
     let (parts, _) = req.into_parts();
 
     if query.thumb.unwrap_or(false) {
@@ -737,67 +680,21 @@ pub async fn serve_image_file(
         }
     }
 
-    let path = PathBuf::from(query.path);
+    let path = checked(&state, &query.path)?;
     if !path.exists() {
         return Err((StatusCode::NOT_FOUND, "File not found".to_string()));
     }
-    
-    match ServeFile::new(path).oneshot(Request::from_parts(parts, axum::body::Body::empty())).await {
+
+    match ServeFile::new(path)
+        .oneshot(Request::from_parts(parts, axum::body::Body::empty()))
+        .await
+    {
         Ok(res) => Ok(with_no_cache(res.into_response())),
-        Err(_) => Err((StatusCode::INTERNAL_SERVER_ERROR, "Error serving file".to_string())),
+        Err(_) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Error serving file".to_string(),
+        )),
     }
-}
-
-pub async fn get_libraries(
-    State(state): State<Arc<AppState>>,
-) -> ApiResult<Vec<Library>> {
-    let path = state.db.app_data_dir.join("libraries.json");
-    println!("API: get_libraries request. Path: {:?}", path);
-    
-    let mut libs: Vec<Library> = if path.exists() {
-        match std::fs::read_to_string(&path) {
-            Ok(content) => {
-                println!("API: read libraries.json success, length: {}", content.len());
-                serde_json::from_str(&content).unwrap_or_else(|e| {
-                    println!("API: JSON Parse Error: {}", e);
-                    Vec::new()
-                })
-            },
-            Err(e) => {
-                println!("API: Error reading libraries.json: {}", e);
-                Vec::new()
-            }
-        }
-    } else {
-        println!("API: libraries.json not found at {:?}", path);
-        Vec::new()
-    };
-
-    // 如果列表為空，建立一個預設的 StickPlay 媒體庫
-    if libs.is_empty() {
-        libs.push(Library {
-            id: "default".to_string(),
-            name: "StickPlay".to_string(),
-            db_name: "stickplay".to_string(),
-            paths: vec!["/media/stickplay".to_string()],
-        });
-        // 同步存回檔案
-        let content = serde_json::to_string_pretty(&libs).map_err(map_err)?;
-        std::fs::write(path, content).map_err(map_err)?;
-    }
-
-    Ok(Json(libs))
-}
-
-
-pub async fn save_libraries(
-    State(state): State<Arc<AppState>>,
-    Json(libs): Json<Vec<Library>>,
-) -> ApiResult<()> {
-    let path = state.db.app_data_dir.join("libraries.json");
-    let content = serde_json::to_string_pretty(&libs).map_err(map_err)?;
-    std::fs::write(path, content).map_err(map_err)?;
-    Ok(Json(()))
 }
 
 #[derive(Deserialize)]
@@ -809,15 +706,24 @@ pub struct MoveFolderPayload {
 }
 
 pub async fn move_video_folder(
-    State(state): State<Arc<AppState>>,
+    Extension(state): Extension<Arc<AppState>>,
     Json(payload): Json<MoveFolderPayload>,
 ) -> ApiResult<VideoEntry> {
-    let current_dir = Path::new(&payload.current_folder_path);
+    let original = video(&state, &payload.video_id)?;
+    let source = checked(&state, &original.folder_path)?;
+    if source != checked(&state, &payload.current_folder_path)? {
+        return Err((StatusCode::FORBIDDEN, "來源資料夾與影片不符".into()));
+    }
+    let target = checked(&state, &payload.target_parent_folder)?;
+    if target.starts_with(&source) {
+        return Err((StatusCode::BAD_REQUEST, "不能搬移到自身或子目錄".into()));
+    }
+    let current_dir = source.as_path();
     if !current_dir.exists() || !current_dir.is_dir() {
         return Err(map_err("來源資料夾不存在"));
     }
 
-    let target_parent = Path::new(&payload.target_parent_folder);
+    let target_parent = target.as_path();
     if !target_parent.exists() || !target_parent.is_dir() {
         return Err(map_err("目的資料夾不存在"));
     }
@@ -831,10 +737,13 @@ pub async fn move_video_folder(
         || !within_watch_paths(&payload.current_folder_path)
         || !within_watch_paths(&payload.target_parent_folder)
     {
-        return Err(map_err("來源或目的路徑不在目前媒體庫的監控範圍內，無法搬移"));
+        return Err(map_err(
+            "來源或目的路徑不在目前媒體庫的監控範圍內，無法搬移",
+        ));
     }
 
-    let folder_name = current_dir.file_name()
+    let folder_name = current_dir
+        .file_name()
         .ok_or_else(|| map_err("無法解析來源資料夾名稱"))?;
 
     let new_dir = target_parent.join(folder_name);
@@ -858,6 +767,30 @@ pub async fn move_video_folder(
     // rating 等既有欄位；若在此之前先行刪除舊紀錄，就會退化成全新 INSERT 而遺失這些欄位。
     // 若重新索引失敗，舊紀錄會維持原狀（不會憑空消失），使用者仍可透過既有的
     // 「重新整理索引」功能自行修復。
+    {
+        let conn = state.db.conn.lock().unwrap();
+        let remap = |p: &str| {
+            current_dir
+                .strip_prefix(current_dir)
+                .ok()
+                .and_then(|_| Path::new(p).strip_prefix(current_dir).ok())
+                .map(|suffix| new_dir.join(suffix).to_string_lossy().into_owned())
+                .unwrap_or_else(|| p.to_string())
+        };
+        if let Err(e) = conn.execute(
+            "UPDATE videos SET folder_path=?1,video_path=?2,nfo_path=?3,poster_path=?4 WHERE id=?5",
+            rusqlite::params![
+                new_dir.to_string_lossy(),
+                remap(&original.video_path),
+                original.nfo_path.as_deref().map(remap),
+                original.poster_path.as_deref().map(remap),
+                original.id
+            ],
+        ) {
+            let _ = std::fs::rename(&new_dir, current_dir);
+            return Err(map_err(e));
+        }
+    }
     if let Err(e) = scan_single_folder(&state.db, &new_dir, false) {
         return Err(map_err(format!(
             "MOVE_REINDEX_FAILED::資料夾已搬移完成，但重新索引失敗，請至新位置手動重新整理索引: {}",
@@ -889,4 +822,3 @@ pub async fn move_video_folder(
 
     Ok(Json(entry))
 }
-

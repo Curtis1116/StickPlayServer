@@ -3,11 +3,6 @@ import { VideoEntry } from "../types";
 import VideoCard from "./VideoCard";
 import { useWindowVirtualizer } from "@tanstack/react-virtual";
 import { useRef, useState, useLayoutEffect, useMemo } from "react";
-import { isWindowsDevice } from "../api";
-
-// Windows 桌面瀏覽器卡片顯示大一點；縮圖仍是原本的 300x450，不需要額外產生更大的圖，
-// 純粹是版面上讓卡片本身變大。其他平台（含 iPhone）維持原本 105px，不受影響
-const MIN_CARD_WIDTH = isWindowsDevice() ? 210 : 105;
 
 interface VideoGridProps {
     videos: VideoEntry[];
@@ -29,7 +24,7 @@ export default function VideoGrid({
     const parentRef = useRef<HTMLDivElement>(null);
     // 初始化為視窗寬度，避免初次渲染出現 1-column 或空白的情況
     const [containerWidth, setContainerWidth] = useState(() => 
-        typeof window !== 'undefined' ? window.innerWidth - 32 : 400
+        typeof window !== 'undefined' ? window.innerWidth - 24 : 390
     );
     const [offsetTop, setOffsetTop] = useState(0);
 
@@ -52,10 +47,9 @@ export default function VideoGrid({
     }, []);
 
     const columns = useMemo(() => {
-        const gap = containerWidth >= 640 ? 32 : 12; // sm: 是 640px
-        const minChildWithGap = MIN_CARD_WIDTH + gap;
-        let cols = Math.floor((containerWidth + gap) / minChildWithGap);
-        return Math.max(1, cols);
+        if (containerWidth < 640) return 3;
+        if (containerWidth < 1024) return 4;
+        return 5;
     }, [containerWidth]);
 
     const videoRows = useMemo(() => {
@@ -67,11 +61,12 @@ export default function VideoGrid({
     }, [videos, columns]);
 
     const estimateRowHeight = useMemo(() => {
-        const isSm = containerWidth >= 640;
-        const gapX = isSm ? 32 : 12;
-        const gapY = isSm ? 48 : 24;
+        const isDesktop = typeof window !== "undefined" && window.matchMedia("(min-width: 1024px)").matches;
+        const gapX = containerWidth >= 640 ? 20 : 8;
+        const gapY = isDesktop ? 28 : 14;
         const itemWidth = (containerWidth - (columns - 1) * gapX) / columns;
-        return itemWidth * 1.5 + 65 + gapY;
+        const detailsHeight = isDesktop ? 112 : 48;
+        return itemWidth * 1.5 + detailsHeight + gapY;
     }, [containerWidth, columns]);
 
     const virtualizer = useWindowVirtualizer({
@@ -113,7 +108,7 @@ export default function VideoGrid({
                             key={virtualRow.key}
                             data-index={virtualRow.index}
                             ref={virtualizer.measureElement}
-                            className="grid absolute top-0 left-0 w-full gap-x-3 sm:gap-x-8"
+                            className="absolute left-0 top-0 grid w-full gap-x-2 sm:gap-x-5"
                             style={{
                                 gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
                                 // 修正絕對定位的 translateY：因為父元素已經受 offsetTop 影響，

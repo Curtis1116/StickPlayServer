@@ -1,12 +1,15 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 
 import Header from "./components/Header";
 import VideoGrid from "./components/VideoGrid";
 import SettingsPage from "./components/SettingsPage";
-import Footer from "./components/Footer";
 import Toast from "./components/Toast";
+import DesktopSidebar from "./components/DesktopSidebar";
+import MobileNav from "./components/MobileNav";
 import { VideoEntry, VideoFilter } from "./types";
 import {
+  selectedLibrary,
+  clearLibrary,
   getAllGenres,
   getAllLevels,
   getLibraries,
@@ -23,6 +26,9 @@ import { Library } from "./types";
 type Page = "main" | "settings";
 
 export default function App() {
+  const querySequence = useRef(0);
+  const [authEpoch, setAuthEpoch] = useState(0);
+  useEffect(() => { const restore = () => setAuthEpoch(v => v + 1); window.addEventListener("stickplay-auth-restored", restore); return () => window.removeEventListener("stickplay-auth-restored", restore); }, []);
   const [page, setPage] = useState<Page>("main");
   const [videos, setVideos] = useState<VideoEntry[]>([]);
   const [genres, setGenres] = useState<string[]>([]);
@@ -49,30 +55,7 @@ export default function App() {
       };
 
       // 優先從伺服器載入媒體庫設定
-      let libs: any[] = await getLibraries();
-      if (!libs || libs.length === 0) {
-        // 回退到 localStorage (用於遷移或初次設定)
-        const localLibs = getStore<Library[]>("libraries");
-        if (!localLibs) {
-          // 遷移更舊的 library_paths
-          const oldPaths = getStore<string[]>("library_paths");
-          if (oldPaths && oldPaths.length > 0) {
-            libs = [{
-              id: "default",
-              name: "預設媒體庫",
-              paths: oldPaths,
-              db_name: "stickplayserver"
-            }];
-            await saveLibraries(libs);
-          } else {
-            libs = [];
-          }
-        } else {
-          // 將本地設定同步到伺服器
-          libs = localLibs;
-          await saveLibraries(libs);
-        }
-      }
+      const libs: Library[] = await getLibraries();
       setLibraries(libs || []);
 
       if (libs.length > 0) {
@@ -80,10 +63,11 @@ export default function App() {
         if (!active || !libs.find(l => l.id === active)) {
           active = libs[0].id;
         }
-        setActiveLibraryId(active || "");
+
 
         const activeLib = libs.find(l => l.id === active)!;
         await switchDatabase(activeLib.db_name);
+        setActiveLibraryId(active || "");
 
         // 載入上次的排序選項
         const savedSortBy = getStore<string>(`${active}_last_sort_by`);
@@ -102,16 +86,17 @@ export default function App() {
         // loadVideos() will be triggered by useEffect due to initial mount and filter change
       }
     } catch (e) {
-      console.error("初始化載入失敗:", e);
+      setToastMessage(`初始化載入失敗：${e}`);
     }
   }, []);
 
   // 載入影片列表
   const loadVideos = useCallback(async () => {
-    if (!activeLibraryId) return;
+    if (!activeLibraryId || selectedLibrary() !== activeLibraryId) return;
+    const sequence = ++querySequence.current;
     try {
       const list = await queryVideos(filter);
-      setVideos(list);
+      if (sequence === querySequence.current && selectedLibrary() === activeLibraryId) setVideos(list);
     } catch (e) {
       console.error("查詢失敗:", e);
     }
@@ -119,12 +104,15 @@ export default function App() {
 
   // 載入篩選選項及統計
   const loadMeta = useCallback(async () => {
+    const id = selectedLibrary();
+    if (!id) return;
     try {
       const [g, l, stats] = await Promise.all([
         getAllGenres(),
         getAllLevels(),
         getStats(),
       ]);
+      if (id !== selectedLibrary()) return;
       setGenres(g);
       setLevels(l);
       setTotalCount(stats[0]);
@@ -162,7 +150,7 @@ export default function App() {
       loadMeta();
     });
     return cleanup;
-  }, [loadVideos, loadMeta]);
+  }, [loadVideos, loadMeta, authEpoch]);
 
   // 掃描媒體庫
   const handleScan = async () => {
@@ -203,7 +191,7 @@ export default function App() {
 
   // 影片重新索引後更新本地狀態
   const handleVideoUpdated = useCallback((updated: VideoEntry) => {
-    setVideos((prev) => prev.map((v) => (v.id === updated.id ? updated : v)));
+    setVideos((prev) => prev.map((v) => (v.id === updated.id || v.folder_path === updated.folder_path ? updated : v)));
   }, []);
 
   // 切換媒體庫
@@ -212,6 +200,8 @@ export default function App() {
     if (lib) {
       try {
         // 先確保後端切換成功
+        ++querySequence.current;
+        setVideos([]);
         await switchDatabase(lib.db_name);
         localStorage.setItem("stickplay_active_library_id", JSON.stringify(id));
         // 更新狀態
@@ -259,23 +249,22 @@ export default function App() {
   };
 
   // 媒體庫路徑更新
-  const handleLibrariesChanged = async (newLibs: Library[]) => {
+  const handleLibrariesChanged = async (newLibs: Library[], persisted = false) => {
+    if (!persisted) await saveLibraries(newLibs);
     setLibraries(newLibs);
-    try {
-      await saveLibraries(newLibs);
-    } catch (e) {
-      console.error("儲存設定到伺服器失敗:", e);
-    }
-    
-    // 如果目前選擇的被刪轉了，切回到第一個
     if (!newLibs.find(l => l.id === activeLibraryId)) {
-      if (newLibs.length > 0) {
-        handleLibraryChange(newLibs[0].id);
-      } else {
-        setActiveLibraryId("");
-        setVideos([]);
-        setTotalCount(0);
-      }
+      ++querySequence.current;
+      setVideos([]);
+      setTotalCount(0);
+      setFavoriteCount(0);
+      setGenres([]); setLevels([]);
+      const first = newLibs[0];
+      if (first) {
+        await switchDatabase(first.db_name);
+        setActiveLibraryId(first.id);
+        localStorage.setItem("stickplay_active_library_id", JSON.stringify(first.id));
+        await loadMeta();
+      } else { clearLibrary(); setActiveLibraryId(""); }
     }
   };
 
@@ -284,55 +273,72 @@ export default function App() {
     setToastMessage(msg);
   }, []);
 
-  if (page === "settings") {
-    return (
-      <div className="min-h-[100dvh] flex flex-col">
-        <SettingsPage
-          libraries={libraries}
-          activeLibraryId={activeLibraryId}
-          onLibraryChange={handleLibraryChange}
-          onBack={() => setPage("main")}
-          onLibrariesChanged={handleLibrariesChanged}
-        />
-
-        {toastMessage && (
-          <Toast
-            key={toastMessage}
-            message={toastMessage}
-            onDone={() => setToastMessage(null)}
-          />
-        )}
-      </div>
-    );
-  }
-
   return (
-    <div className="min-h-[100dvh] flex flex-col">
-      <Header
+    <div className="flex min-h-[100dvh] bg-[#0d0e12]">
+      <DesktopSidebar
+        page={page}
         libraries={libraries}
         activeLibraryId={activeLibraryId}
         onLibraryChange={handleLibraryChange}
         genres={genres}
-        levels={levels}
         filter={filter}
+        totalCount={totalCount}
+        favoriteCount={favoriteCount}
         onFilterChange={handleFilterChange}
-        onRefresh={handleScan}
+        onOpenMain={() => setPage("main")}
         onOpenSettings={() => setPage("settings")}
         isScanning={isScanning}
       />
 
-      <main className="flex-grow p-4 sm:p-8">
-        <VideoGrid
-          videos={videos}
-          onFavoriteToggled={handleFavoriteToggled}
-          onVideoUpdated={handleVideoUpdated}
-          onVideoRemoved={handleVideoRemoved}
-          onToast={showToast}
-          onModalStateChange={setIsModalOpen}
-        />
-      </main>
+      <div className="min-w-0 flex-1">
+        {page === "settings" ? (
+          <SettingsPage
+            libraries={libraries}
+            activeLibraryId={activeLibraryId}
+            onBack={() => setPage("main")}
+            onLibrariesChanged={handleLibrariesChanged}
+          />
+        ) : (
+          <>
+            <Header
+              libraries={libraries}
+              activeLibraryId={activeLibraryId}
+              onLibraryChange={handleLibraryChange}
+              genres={genres}
+              levels={levels}
+              filter={filter}
+              totalCount={totalCount}
+              onFilterChange={handleFilterChange}
+              onRefresh={handleScan}
+              onOpenSettings={() => setPage("settings")}
+              isScanning={isScanning}
+            />
+            <main className="mx-auto w-full max-w-[1600px] px-3 pb-24 pt-3 sm:px-6 sm:pt-6 lg:px-8 lg:pb-10">
+              <VideoGrid
+                videos={videos}
+                onFavoriteToggled={handleFavoriteToggled}
+                onVideoUpdated={handleVideoUpdated}
+                onVideoRemoved={handleVideoRemoved}
+                onToast={showToast}
+                onModalStateChange={setIsModalOpen}
+              />
+            </main>
+          </>
+        )}
+      </div>
 
-      <Footer totalCount={totalCount} favoriteCount={favoriteCount} />
+      <MobileNav
+        active={page === "settings" ? "settings" : filter.favorites_only ? "favorites" : "videos"}
+        onVideos={() => {
+          setPage("main");
+          void handleFilterChange({ ...filter, search: undefined, favorites_only: undefined, genres: undefined, levels: undefined });
+        }}
+        onFavorites={() => {
+          setPage("main");
+          void handleFilterChange({ ...filter, search: undefined, favorites_only: true, genres: undefined, levels: undefined });
+        }}
+        onSettings={() => setPage("settings")}
+      />
 
       {toastMessage && (
         <Toast

@@ -1,7 +1,7 @@
 use rusqlite::{params, Connection, Result as SqlResult};
 use std::path::PathBuf;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
 
 use crate::models::{VideoEntry, VideoFilter};
 
@@ -39,12 +39,21 @@ pub struct Database {
 
 impl Database {
     pub fn new(app_data_dir: PathBuf) -> SqlResult<Self> {
+        Self::open(app_data_dir, "stickplay")
+    }
+
+    pub fn open(app_data_dir: PathBuf, name: &str) -> SqlResult<Self> {
+        crate::security::identifier(name).map_err(|_| rusqlite::Error::InvalidQuery)?;
+        if name == "auth" {
+            return Err(rusqlite::Error::InvalidQuery);
+        }
         std::fs::create_dir_all(&app_data_dir).ok();
-
-        let conn = Self::create_connection(&app_data_dir, "stickplay")?;
-
+        let conn = Self::create_connection(&app_data_dir, name)?;
         Ok(Self {
-            conn: Mutex::new(DbConn { conn, name: "stickplay".to_string() }),
+            conn: Mutex::new(DbConn {
+                conn,
+                name: name.into(),
+            }),
             app_data_dir,
             is_scanning: AtomicBool::new(false),
             thumb_dir_ready: AtomicBool::new(false),
@@ -54,6 +63,12 @@ impl Database {
     /// 建立與特定資料庫的連線，並確保資料表存在
     fn create_connection(app_data_dir: &PathBuf, db_name: &str) -> SqlResult<Connection> {
         let db_path = app_data_dir.join(format!("{}.db", db_name));
+        if db_path
+            .symlink_metadata()
+            .is_ok_and(|m| m.file_type().is_symlink())
+        {
+            return Err(rusqlite::Error::InvalidQuery);
+        }
         let conn = Connection::open(db_path)?;
 
         // 啟用 WAL 模式以提升並行效能
@@ -92,40 +107,19 @@ impl Database {
 
         // Migration: 若舊版 DB 缺少 nfos_path 欄位則補上 (保持相容性但不再主動使用)
         conn.execute_batch("ALTER TABLE videos ADD COLUMN nfos_path TEXT;")
-            .ok(); 
+            .ok();
 
         // Migration: 新增 criticrating 欄位
-        conn.execute_batch("ALTER TABLE videos ADD COLUMN criticrating INTEGER NOT NULL DEFAULT 0;")
-            .ok();
+        conn.execute_batch(
+            "ALTER TABLE videos ADD COLUMN criticrating INTEGER NOT NULL DEFAULT 0;",
+        )
+        .ok();
 
         // Migration: 清除除了「無碼」以外的舊分類標籤
         conn.execute("DELETE FROM video_genres WHERE genre != '無碼'", params![])
             .ok();
 
         Ok(conn)
-    }
-
-    pub fn switch_database(&self, db_name: &str) -> SqlResult<()> {
-        if self.is_scanning.load(Ordering::SeqCst) {
-            return Err(rusqlite::Error::SqliteFailure(
-                rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_BUSY),
-                Some("媒體庫正在掃描中，請等待掃描完成後再切換".to_string()),
-            ));
-        }
-        let new_conn = Self::create_connection(&self.app_data_dir, db_name)?;
-
-        // conn 與 name 在同一把鎖底下一次更新完畢，其他執行緒不論是透過 Deref 使用
-        // Connection（例如查詢／寫入），或是呼叫 thumbnail_dir() 讀取 name，都只會鎖到
-        // 同一個 Mutex，因此不可能在切換過程中觀察到兩者不一致的中間狀態。
-        let mut guard = self.conn.lock().unwrap();
-        guard.conn = new_conn;
-        guard.name = db_name.to_string();
-        drop(guard);
-
-        // 換了資料庫，縮圖目錄也跟著換了，下一次 thumbnail_dir() 需要重新確保目錄存在
-        self.thumb_dir_ready.store(false, Ordering::SeqCst);
-
-        Ok(())
     }
 
     /// 取得目前資料庫專屬的縮圖路徑
@@ -156,12 +150,27 @@ impl Database {
         let filename = format!("{}.jpg", safe_id);
 
         let current = self.thumbnail_dir().join(&filename);
-        if current.exists() {
+        if current.is_file()
+            && current.canonicalize().ok().is_some_and(|p| {
+                self.thumbnail_dir()
+                    .canonicalize()
+                    .ok()
+                    .is_some_and(|root| p.starts_with(root))
+            })
+        {
             return Some(current);
         }
 
         let legacy = self.app_data_dir.join("thumbnails").join(&filename);
-        if legacy.exists() {
+        if legacy.is_file()
+            && legacy.canonicalize().ok().is_some_and(|p| {
+                self.app_data_dir
+                    .join("thumbnails")
+                    .canonicalize()
+                    .ok()
+                    .is_some_and(|root| p.starts_with(root))
+            })
+        {
             return Some(legacy);
         }
 
@@ -196,8 +205,18 @@ impl Database {
         genres: &[String],
         criticrating: i32,
     ) -> SqlResult<()> {
-        let conn = self.conn.lock().unwrap();
-
+        let mut guard = self.conn.lock().unwrap();
+        let conn = guard.transaction()?;
+        let collision: bool = conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM videos WHERE id=?1 AND folder_path!=?2)",
+            params![id, folder_path],
+            |r| r.get(0),
+        )?;
+        if collision {
+            return Err(rusqlite::Error::InvalidParameterName(
+                "影片 ID 已存在".into(),
+            ));
+        }
         // 清除相同資料夾但 ID 不同的舊記錄 (避免修改 ID 擷取邏輯後產生重複記錄)
         conn.execute(
             "DELETE FROM videos WHERE folder_path = ?1 AND id != ?2",
@@ -239,6 +258,7 @@ impl Database {
             )?;
         }
 
+        conn.commit()?;
         Ok(())
     }
 
@@ -519,9 +539,12 @@ impl Database {
                 keep = false;
             } else if belonging_lib_online {
                 // 媒體庫有掛載（在線），我們這才進行實體檔案檢查
-                if !v_path.exists() {
+                if v_path.try_exists().is_ok_and(|exists| !exists) {
                     keep = false;
-                    println!("DEBUG: Pruning because v_path.exists() is false: {:?}", v_path);
+                    println!(
+                        "DEBUG: Pruning because v_path.exists() is false: {:?}",
+                        v_path
+                    );
                 }
             } else {
                 // 媒體庫沒掛載/不存在（外接硬碟拔除了），我們*保留*這個紀錄，不刪除

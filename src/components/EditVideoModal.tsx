@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useDialogFocus } from "../useDialogFocus";
 import { createPortal } from "react-dom";
 import { X, Save, Star, StarOff, Trash2, Plus, Minus } from "lucide-react";
 import { VideoEntry } from "../types";
@@ -17,6 +18,7 @@ export default function EditVideoModal({
     onSaved,
     onToast,
 }: EditVideoModalProps) {
+    const dialogRef = useDialogFocus(onClose);
     const [rating, setRating] = useState(video.rating);
     const [criticRating, setCriticRating] = useState(video.criticrating || Math.round(video.rating * 10));
     const [id, setId] = useState(video.id);
@@ -48,11 +50,7 @@ export default function EditVideoModal({
                 .filter(Boolean);
 
             let newLevel = level;
-            if (isUncensored && !newLevel.toLowerCase().endsWith("x")) {
-                newLevel += "X";
-            } else if (!isUncensored && newLevel.toLowerCase().endsWith("x")) {
-                newLevel = newLevel.slice(0, -1);
-            }
+            newLevel = newLevel.replace(/[xX]$/, '');
 
             const nfoPath = await updateVideoInfo(
                 video.id,
@@ -100,7 +98,7 @@ export default function EditVideoModal({
     };
 
     return createPortal(
-        <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
+        <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="編輯影片資訊" className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
             <div className="glass-panel w-full max-w-2xl bg-zinc-900/90 border border-zinc-700/50 rounded-2xl shadow-2xl overflow-hidden flex flex-col h-[85vh]">
                 <div className="flex items-center justify-between p-4 border-b border-white/10 shrink-0">
                     <h2 className="text-lg font-bold text-white">編輯影片資訊</h2>

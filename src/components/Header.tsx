@@ -1,11 +1,14 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-    Search,
-    RefreshCw,
-    Settings,
-    ArrowUpDown,
+    Check,
+    ChevronDown,
+    FolderCog,
     FolderOpen,
-    ListFilter,
+    RefreshCw,
+    Search,
+    Settings,
+    SlidersHorizontal,
+    X,
 } from "lucide-react";
 import { Library, VideoFilter } from "../types";
 
@@ -16,158 +19,169 @@ interface HeaderProps {
     genres: string[];
     levels: string[];
     filter: VideoFilter;
+    totalCount: number;
     onFilterChange: (filter: VideoFilter) => void;
     onRefresh: () => void;
     onOpenSettings: () => void;
     isScanning: boolean;
 }
 
-function FilterDropdown({
+type MobilePanel = "library" | "filter" | "sort" | null;
+type DesktopPopover = "filter" | "sort" | null;
+
+const SORT_OPTIONS = [
+    { value: "date_added", label: "加入日期" },
+    { value: "release_date", label: "發行日期" },
+    { value: "title", label: "影片標題" },
+    { value: "rating", label: "影片評分" },
+    { value: "actor", label: "演員" },
+    { value: "id", label: "番號" },
+    { value: "level", label: "分級" },
+];
+
+function filterCount(filter: VideoFilter) {
+    return Number(Boolean(filter.favorites_only)) + (filter.genres?.length || 0) + (filter.levels?.length || 0);
+}
+
+function toggleListValue(values: string[] | undefined, value: string) {
+    const current = values || [];
+    return current.includes(value) ? current.filter((item) => item !== value) : [...current, value];
+}
+
+function ChoiceChip({ checked, label, onClick }: { checked: boolean; label: string; onClick: () => void }) {
+    return (
+        <button
+            type="button"
+            aria-pressed={checked}
+            onClick={onClick}
+            className={`flex min-h-11 items-center gap-2 rounded-lg border px-3 text-sm transition-colors ${
+                checked
+                    ? "border-indigo-500 bg-indigo-500/15 text-indigo-300"
+                    : "border-zinc-700 bg-zinc-900 text-zinc-300 hover:border-zinc-600"
+            }`}
+        >
+            <span className={`flex h-4 w-4 items-center justify-center rounded border ${checked ? "border-indigo-400 bg-indigo-500" : "border-zinc-600"}`}>
+                {checked && <Check size={11} />}
+            </span>
+            <span className="truncate">{label}</span>
+        </button>
+    );
+}
+
+function FilterFields({
+    value,
     genres,
     levels,
-    filter,
-    onFilterChange,
+    onChange,
 }: {
+    value: VideoFilter;
     genres: string[];
     levels: string[];
-    filter: VideoFilter;
-    onFilterChange: (f: VideoFilter) => void;
+    onChange: (filter: VideoFilter) => void;
 }) {
-    const [isOpen, setIsOpen] = useState(false);
-    const ref = useRef<HTMLDivElement>(null);
-
-    // click outside
-    useEffect(() => {
-        const handleClickOutside = (e: MouseEvent) => {
-            if (ref.current && !ref.current.contains(e.target as Node)) {
-                setIsOpen(false);
-            }
-        };
-        document.addEventListener("mousedown", handleClickOutside);
-        return () =>
-            document.removeEventListener("mousedown", handleClickOutside);
-    }, []);
-
-    // 取得目前選取的數量，用來顯示在按鈕上
-    const selectedCount =
-        (filter.favorites_only ? 1 : 0) +
-        (filter.genres?.length || 0) +
-        (filter.levels?.length || 0);
-
-    const toggleFavorite = () => {
-        onFilterChange({
-            ...filter,
-            favorites_only: filter.favorites_only ? undefined : true,
-        });
-    };
-
-    const toggleGenre = (genre: string) => {
-        const current = filter.genres || [];
-        const next = current.includes(genre)
-            ? current.filter((g) => g !== genre)
-            : [...current, genre];
-        onFilterChange({ ...filter, genres: next.length > 0 ? next : undefined });
-    };
-
-    const toggleLevel = (level: string) => {
-        const current = filter.levels || [];
-        const next = current.includes(level)
-            ? current.filter((l) => l !== level)
-            : [...current, level];
-        onFilterChange({ ...filter, levels: next.length > 0 ? next : undefined });
-    };
-
-    const clearFilters = () => {
-        onFilterChange({
-            ...filter,
-            favorites_only: undefined,
-            genres: undefined,
-            levels: undefined,
-        });
-        setIsOpen(false);
-    };
+    const shownLevels = useMemo(() => {
+        const all = ["無分級", ...levels.filter((level) => level !== "無分級")];
+        return Array.from(new Set(all));
+    }, [levels]);
 
     return (
-        <div className="relative" ref={ref}>
-            <button
-                onClick={() => setIsOpen(!isOpen)}
-                className={`relative w-9 h-9 flex items-center justify-center transition-colors ${isOpen ? "text-indigo-400" : "text-zinc-400 hover:text-white"}`}
-                title="篩選器"
-            >
-                <ListFilter size={18} />
-                {selectedCount > 0 && (
-                    <span className="absolute top-1 right-1 w-2 h-2 bg-indigo-500 rounded-full border border-zinc-900" />
-                )}
-            </button>
-
-            {isOpen && (
-                <div className="absolute top-full left-0 mt-2 w-56 bg-zinc-900/95 backdrop-blur-xl border border-zinc-800 rounded-xl shadow-2xl overflow-hidden py-2 z-50">
-                    <button
-                        onClick={clearFilters}
-                        className="w-full text-left px-4 py-2 text-sm text-red-400 font-bold hover:bg-zinc-800/50 transition-colors"
-                    >
-                        [ 清除篩選 ]
-                    </button>
-
-                    <div className="px-4 py-1 flex items-center gap-2 text-[10px] font-bold text-zinc-500 uppercase mt-1">
-                        類型
-                    </div>
-                    <label className="flex items-center gap-3 px-4 py-1.5 hover:bg-zinc-800/50 cursor-pointer">
-                        <input
-                            type="checkbox"
-                            checked={filter.favorites_only || false}
-                            onChange={toggleFavorite}
-                            className="rounded border-zinc-700 bg-zinc-900 text-indigo-500 focus:ring-indigo-500"
+        <div className="space-y-5">
+            <div>
+                <p className="mb-2 text-sm font-medium text-zinc-200">收藏</p>
+                <label className="flex min-h-11 cursor-pointer items-center justify-between rounded-lg border border-zinc-800 bg-zinc-950/40 px-3 text-sm text-zinc-300">
+                    <span>只看我的最愛</span>
+                    <input
+                        type="checkbox"
+                        checked={Boolean(value.favorites_only)}
+                        onChange={(event) => onChange({ ...value, favorites_only: event.target.checked || undefined })}
+                        className="h-5 w-5 accent-indigo-500"
+                    />
+                </label>
+            </div>
+            <div>
+                <div className="mb-2 flex items-center gap-2">
+                    <p className="text-sm font-medium text-zinc-200">類型</p>
+                    <span className="text-xs text-zinc-600">可複選</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                    {genres.map((genre) => (
+                        <ChoiceChip
+                            key={genre}
+                            label={genre}
+                            checked={Boolean(value.genres?.includes(genre))}
+                            onClick={() => {
+                                const next = toggleListValue(value.genres, genre);
+                                onChange({ ...value, genres: next.length ? next : undefined });
+                            }}
                         />
-                        <span className="text-sm text-zinc-300 font-medium">
-                            ⭐ 我的最愛
-                        </span>
-                    </label>
-                    {genres.map((g) => (
-                        <label
-                            key={g}
-                            className="flex items-center gap-3 px-4 py-1.5 hover:bg-zinc-800/50 cursor-pointer"
-                        >
-                            <input
-                                type="checkbox"
-                                checked={filter.genres?.includes(g) || false}
-                                onChange={() => toggleGenre(g)}
-                                className="rounded border-zinc-700 bg-zinc-900 text-indigo-500 focus:ring-indigo-500"
-                            />
-                            <span className="text-sm text-zinc-300 font-medium">{g}</span>
-                        </label>
                     ))}
-
-                    <div className="w-full h-px bg-zinc-800 my-2"></div>
-
-                    <div className="px-4 py-1 flex items-center gap-2 text-[10px] font-bold text-zinc-500 uppercase mt-1">
-                        分級
-                    </div>
-                    <label className="flex items-center gap-3 px-4 py-1.5 hover:bg-zinc-800/50 cursor-pointer">
-                        <input
-                            type="checkbox"
-                            checked={filter.levels?.includes("無分級") || false}
-                            onChange={() => toggleLevel("無分級")}
-                            className="rounded border-zinc-700 bg-zinc-900 text-indigo-500 focus:ring-indigo-500"
+                    {genres.length === 0 && <p className="col-span-full text-sm text-zinc-600">尚無類型資料</p>}
+                </div>
+            </div>
+            <div>
+                <div className="mb-2 flex items-center gap-2">
+                    <p className="text-sm font-medium text-zinc-200">分級</p>
+                    <span className="text-xs text-zinc-600">可複選</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                    {shownLevels.map((level) => (
+                        <ChoiceChip
+                            key={level}
+                            label={level}
+                            checked={Boolean(value.levels?.includes(level))}
+                            onClick={() => {
+                                const next = toggleListValue(value.levels, level);
+                                onChange({ ...value, levels: next.length ? next : undefined });
+                            }}
                         />
-                        <span className="text-sm text-zinc-300 font-medium">無分級</span>
-                    </label>
-                    {levels.map((l) => (
-                        <label
-                            key={l}
-                            className="flex items-center gap-3 px-4 py-1.5 hover:bg-zinc-800/50 cursor-pointer"
-                        >
-                            <input
-                                type="checkbox"
-                                checked={filter.levels?.includes(l) || false}
-                                onChange={() => toggleLevel(l)}
-                                className="rounded border-zinc-700 bg-zinc-900 text-indigo-500 focus:ring-indigo-500"
-                            />
-                            <span className="text-sm text-zinc-300 font-medium">{l}</span>
-                        </label>
                     ))}
                 </div>
-            )}
+            </div>
+        </div>
+    );
+}
+
+function SortFields({ value, onChange }: { value: VideoFilter; onChange: (filter: VideoFilter) => void }) {
+    const currentSort = value.sort_by || "date_added";
+    const currentOrder = value.sort_order || "DESC";
+    return (
+        <div className="space-y-5">
+            <div>
+                <p className="mb-2 text-sm font-medium text-zinc-400">排序欄位</p>
+                <div className="space-y-1">
+                    {SORT_OPTIONS.map((option) => {
+                        const selected = currentSort === option.value;
+                        return (
+                            <button
+                                type="button"
+                                key={option.value}
+                                onClick={() => onChange({ ...value, sort_by: option.value })}
+                                className={`flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-left text-sm transition-colors ${selected ? "bg-indigo-500/10 text-indigo-300" : "text-zinc-300 hover:bg-zinc-800"}`}
+                            >
+                                <span className={`flex h-5 w-5 items-center justify-center rounded-full border ${selected ? "border-indigo-400" : "border-zinc-600"}`}>
+                                    {selected && <span className="h-2.5 w-2.5 rounded-full bg-indigo-400" />}
+                                </span>
+                                {option.label}
+                            </button>
+                        );
+                    })}
+                </div>
+            </div>
+            <div>
+                <p className="mb-2 text-sm font-medium text-zinc-400">排序方向</p>
+                <div className="grid grid-cols-2 overflow-hidden rounded-lg border border-zinc-700">
+                    {(["ASC", "DESC"] as const).map((order) => (
+                        <button
+                            type="button"
+                            key={order}
+                            onClick={() => onChange({ ...value, sort_order: order })}
+                            className={`min-h-11 text-sm font-medium ${currentOrder === order ? "bg-indigo-500 text-white" : "bg-zinc-900 text-zinc-400"}`}
+                        >
+                            {order === "ASC" ? "升冪" : "降冪"}
+                        </button>
+                    ))}
+                </div>
+            </div>
         </div>
     );
 }
@@ -179,208 +193,226 @@ export default function Header({
     genres,
     levels,
     filter,
+    totalCount,
     onFilterChange,
     onRefresh,
     onOpenSettings,
     isScanning,
 }: HeaderProps) {
     const [searchValue, setSearchValue] = useState(filter.search || "");
-    const [isSearchVisible, setIsSearchVisible] = useState(false);
-    const [isLibDropdownOpen, setIsLibDropdownOpen] = useState(false);
-    const [isSortDropdownOpen, setIsSortDropdownOpen] = useState(false);
+    const [mobilePanel, setMobilePanel] = useState<MobilePanel>(null);
+    const [desktopPopover, setDesktopPopover] = useState<DesktopPopover>(null);
+    const [draftFilter, setDraftFilter] = useState<VideoFilter>(filter);
     const debounceRef = useRef<ReturnType<typeof setTimeout>>(null);
-    const sortRef = useRef<HTMLDivElement>(null);
-    const libRef = useRef<HTMLDivElement>(null);
+    const filterRef = useRef(filter);
+    const desktopToolsRef = useRef<HTMLDivElement>(null);
+    const activeLibrary = libraries.find((library) => library.id === activeLibraryId);
+    const activeFilterCount = filterCount(filter);
+    const currentSortLabel = SORT_OPTIONS.find((option) => option.value === (filter.sort_by || "date_added"))?.label || "加入日期";
 
-    // 讓輸入框與外部的 filter.search 保持同步（例如切換媒體庫時 filter 會被重置，
-    // 若不同步，搜尋框會繼續顯示舊的關鍵字，但畫面其實已經改成顯示未篩選的結果）
     useEffect(() => {
+        filterRef.current = filter;
         setSearchValue(filter.search || "");
-    }, [filter.search]);
+    }, [filter]);
 
-    // 防抖搜尋
-    const handleSearchChange = useCallback(
-        (value: string) => {
-            setSearchValue(value);
-            if (debounceRef.current) clearTimeout(debounceRef.current);
-            debounceRef.current = setTimeout(() => {
-                onFilterChange({ ...filter, search: value || undefined });
-            }, 300);
-        },
-        [filter, onFilterChange]
-    );
+    const handleSearchChange = useCallback((value: string) => {
+        setSearchValue(value);
+        if (debounceRef.current) clearTimeout(debounceRef.current);
+        debounceRef.current = setTimeout(() => {
+            onFilterChange({ ...filterRef.current, search: value || undefined });
+        }, 300);
+    }, [onFilterChange]);
 
-    useEffect(() => {
-        const handleClickOutside = (e: MouseEvent) => {
-            if (sortRef.current && !sortRef.current.contains(e.target as Node)) {
-                setIsSortDropdownOpen(false);
-            }
-            if (libRef.current && !libRef.current.contains(e.target as Node)) {
-                setIsLibDropdownOpen(false);
-            }
-        };
-        document.addEventListener("mousedown", handleClickOutside);
-        return () => {
-            document.removeEventListener("mousedown", handleClickOutside);
-            if (debounceRef.current) clearTimeout(debounceRef.current);
-        };
+    useEffect(() => () => {
+        if (debounceRef.current) clearTimeout(debounceRef.current);
     }, []);
 
-    // 排序選項
-    const sortOptions = [
-        { value: "date_added", label: "加入日期" },
-        { value: "release_date", label: "發行日期" },
-        { value: "title", label: "影片標題" },
-        { value: "rating", label: "影片評分" },
-        { value: "actor", label: "女優" },
-        { value: "id", label: "番號" },
-        { value: "level", label: "分級" },
-    ];
+    useEffect(() => {
+        if (!mobilePanel) return;
+        const previousOverflow = document.body.style.overflow;
+        document.body.style.overflow = "hidden";
+        return () => { document.body.style.overflow = previousOverflow; };
+    }, [mobilePanel]);
 
-    const currentSort = filter.sort_by || "date_added";
-    const currentOrder = filter.sort_order || "DESC";
+    useEffect(() => {
+        const close = (event: MouseEvent) => {
+            if (desktopToolsRef.current && !desktopToolsRef.current.contains(event.target as Node)) {
+                setDesktopPopover(null);
+            }
+        };
+        document.addEventListener("mousedown", close);
+        return () => document.removeEventListener("mousedown", close);
+    }, []);
+
+    const openMobilePanel = (panel: Exclude<MobilePanel, null>) => {
+        setDraftFilter({ ...filter, search: searchValue || undefined });
+        setMobilePanel(panel);
+    };
+
+    const openDesktopPopover = (panel: Exclude<DesktopPopover, null>) => {
+        setDraftFilter({ ...filter, search: searchValue || undefined });
+        setDesktopPopover((current) => current === panel ? null : panel);
+    };
+
+    const applyDraft = () => {
+        onFilterChange(draftFilter);
+        setMobilePanel(null);
+        setDesktopPopover(null);
+    };
+
+    const clearDraftFilters = () => setDraftFilter({
+        ...draftFilter,
+        favorites_only: undefined,
+        genres: undefined,
+        levels: undefined,
+    });
 
     return (
-        <header className="sticky top-0 z-50 glass-panel border-b border-zinc-800 shadow-2xl">
-            <div className="max-w-[1800px] mx-auto px-4 h-16 flex items-center justify-between gap-2">
-                {/* Logo Section */}
-                {!isSearchVisible && (
-                    <div className="flex items-center gap-3">
-                        <span className="text-xl font-black tracking-tighter bg-gradient-to-br from-indigo-400 to-purple-500 bg-clip-text text-transparent select-none">
-                            StickPlayServer
+        <>
+            <header className="sticky top-0 z-30 border-b border-zinc-800 bg-[#101115]/95 backdrop-blur-xl">
+                <div className="lg:hidden">
+                    <div className="flex h-14 items-center gap-2 px-3">
+                        <span className="flex-1 text-lg font-bold tracking-tight text-zinc-100">
+                            StickPlay<span className="text-indigo-400">Server</span>
                         </span>
+                        <button type="button" onClick={onRefresh} disabled={isScanning} aria-label="重新掃描" className="flex h-11 w-11 items-center justify-center rounded-lg text-zinc-400 hover:bg-zinc-800 hover:text-white disabled:opacity-50">
+                            <RefreshCw size={19} className={isScanning ? "animate-spin" : ""} />
+                        </button>
+                        <button type="button" onClick={onOpenSettings} aria-label="設定" className="flex h-11 w-11 items-center justify-center rounded-lg text-zinc-400 hover:bg-zinc-800 hover:text-white">
+                            <Settings size={20} />
+                        </button>
                     </div>
-                )}
-
-                {/* Main Tools */}
-                <div className={`flex items-center gap-1 sm:gap-4 ${isSearchVisible ? "w-full" : ""}`}>
-                    {/* Search Field (Conditional) */}
-                    {isSearchVisible ? (
-                        <div className="flex-grow relative animate-in slide-in-from-right-4 duration-300 flex items-center gap-2">
-                            <div className="relative flex-grow group">
-                                <input
-                                    autoFocus
-                                    type="text"
-                                    placeholder="搜尋影片..."
-                                    value={searchValue}
-                                    onChange={(e) => handleSearchChange(e.target.value)}
-                                    className="w-full bg-zinc-900 border border-zinc-800 rounded-full py-1.5 pl-9 pr-9 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500/50 transition-all text-zinc-200"
-                                />
-                                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
-                                {searchValue && (
-                                    <button onClick={() => handleSearchChange("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500">
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-                                    </button>
-                                )}
-                            </div>
-                            <button 
-                                onClick={() => { setIsSearchVisible(false); handleSearchChange(""); }}
-                                className="text-xs font-bold text-zinc-400 px-2"
-                            >
-                                取消
-                            </button>
-                        </div>
-                    ) : (
-                        <div className="flex items-center gap-1 sm:gap-3">
-                            {/* Library Select Icon */}
-                            {libraries.length > 0 && (
-                                <div className="relative" ref={libRef}>
-                                    <button 
-                                        onClick={() => setIsLibDropdownOpen(!isLibDropdownOpen)}
-                                        className="w-9 h-9 flex items-center justify-center text-zinc-400 hover:text-white transition-colors"
-                                        title="切換媒體庫"
-                                    >
-                                        <FolderOpen size={18} />
-                                    </button>
-                                    {isLibDropdownOpen && (
-                                        <div className="absolute top-full left-0 mt-2 w-48 bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl overflow-hidden py-1 z-50">
-                                            {libraries.map(lib => (
-                                                <button
-                                                    key={lib.id}
-                                                    onClick={() => { onLibraryChange(lib.id); setIsLibDropdownOpen(false); }}
-                                                    className={`w-full text-left px-4 py-2 text-sm transition-colors ${activeLibraryId === lib.id ? "bg-indigo-500/10 text-indigo-400 font-bold" : "text-zinc-400 hover:bg-zinc-800"}`}
-                                                >
-                                                    {lib.name}
-                                                </button>
-                                            ))}
-                                        </div>
-                                    )}
-                                </div>
-                            )}
-
-                            {/* Filter Icon */}
-                            <FilterDropdown
-                                genres={genres}
-                                levels={levels}
-                                filter={filter}
-                                onFilterChange={onFilterChange}
-                            />
-
-                            {/* Sort Icon */}
-                            <div className="relative" ref={sortRef}>
-                                <button 
-                                    onClick={() => setIsSortDropdownOpen(!isSortDropdownOpen)}
-                                    className={`w-9 h-9 flex items-center justify-center transition-colors ${isSortDropdownOpen ? "text-indigo-400" : "text-zinc-400 hover:text-white"}`}
-                                    title="排序"
-                                >
-                                    <ArrowUpDown size={18} />
-                                </button>
-                                {isSortDropdownOpen && (
-                                    <div className="absolute top-full right-0 mt-2 w-40 bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl overflow-hidden py-1 z-50">
-                                        <div className="px-4 py-1.5 border-b border-zinc-800 flex items-center justify-between">
-                                            <span className="text-[10px] font-bold text-zinc-500 uppercase">順序</span>
-                                            <button
-                                                onClick={() => onFilterChange({ ...filter, sort_order: currentOrder === "ASC" ? "DESC" : "ASC" })}
-                                                className="text-xs text-indigo-400 font-bold"
-                                            >
-                                                {currentOrder === "ASC" ? "升序" : "降序"}
-                                            </button>
-                                        </div>
-                                        {sortOptions.map(opt => (
-                                            <button
-                                                key={opt.value}
-                                                onClick={() => { onFilterChange({ ...filter, sort_by: opt.value }); setIsSortDropdownOpen(false); }}
-                                                className={`w-full text-left px-4 py-2 text-sm transition-colors ${currentSort === opt.value ? "text-indigo-400 font-bold bg-indigo-500/5" : "text-zinc-400 hover:bg-zinc-800"}`}
-                                            >
-                                                {opt.label}
-                                            </button>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-
-                            {/* Search Icon */}
-                            <button 
-                                onClick={() => setIsSearchVisible(true)}
-                                className="w-9 h-9 flex items-center justify-center text-zinc-400 hover:text-white transition-colors"
-                            >
-                                <Search size={18} />
-                            </button>
-                        </div>
-                    )}
+                    <div className="flex h-12 items-center gap-2 border-t border-zinc-800/60 px-3">
+                        <button type="button" onClick={() => openMobilePanel("library")} className="flex h-10 min-w-0 flex-1 items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-sm font-medium text-zinc-100">
+                            <FolderOpen size={17} className="shrink-0 text-zinc-400" />
+                            <span className="truncate">{activeLibrary?.name || "選擇媒體庫"}</span>
+                            <ChevronDown size={15} className="ml-auto shrink-0 text-zinc-500" />
+                        </button>
+                        <span className="shrink-0 text-xs tabular-nums text-zinc-500">{totalCount} 部</span>
+                        <button type="button" onClick={() => openMobilePanel("sort")} className="flex h-10 shrink-0 items-center gap-1 rounded-lg border border-zinc-700 px-3 text-sm font-medium text-zinc-200">
+                            排序 <ChevronDown size={14} />
+                        </button>
+                    </div>
+                    <div className="flex gap-2 px-3 pb-3 pt-1">
+                        <label className="relative min-w-0 flex-1">
+                            <span className="sr-only">搜尋演員或番號</span>
+                            <Search size={17} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
+                            <input type="search" value={searchValue} onChange={(event) => handleSearchChange(event.target.value)} placeholder="搜尋演員、番號" className="h-11 w-full rounded-lg border border-zinc-700 bg-zinc-900 pl-10 pr-3 text-base text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-indigo-500" />
+                        </label>
+                        <button type="button" onClick={() => openMobilePanel("filter")} className={`relative flex h-11 shrink-0 items-center gap-2 rounded-lg border px-3 text-sm font-medium ${activeFilterCount ? "border-indigo-500 bg-indigo-500/10 text-indigo-300" : "border-zinc-700 text-zinc-300"}`}>
+                            <SlidersHorizontal size={17} />
+                            篩選{activeFilterCount > 0 && ` · ${activeFilterCount}`}
+                        </button>
+                    </div>
                 </div>
 
-                {/* Right Utils */}
-                {!isSearchVisible && (
-                    <div className="flex items-center gap-1 sm:gap-4">
-                        <button
-                            onClick={onRefresh}
-                            disabled={isScanning}
-                            className="w-9 h-9 flex items-center justify-center text-zinc-400 hover:text-white transition-colors disabled:opacity-50"
-                            title="重新掃描"
-                        >
+                <div className="hidden px-8 py-5 lg:block">
+                    <div className="flex items-center gap-5">
+                        <label className="relative max-w-4xl flex-1">
+                            <span className="sr-only">搜尋影片</span>
+                            <Search size={19} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500" />
+                            <input type="search" value={searchValue} onChange={(event) => handleSearchChange(event.target.value)} placeholder="搜尋片名、演員或番號" className="h-12 w-full rounded-lg border border-zinc-700 bg-zinc-900/70 pl-12 pr-4 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-indigo-500" />
+                        </label>
+                        <button type="button" onClick={onRefresh} disabled={isScanning} className="flex h-12 items-center gap-2 rounded-lg border border-zinc-700 px-4 text-sm font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white disabled:opacity-50">
                             <RefreshCw size={18} className={isScanning ? "animate-spin" : ""} />
-                        </button>
-                        <button
-                            onClick={onOpenSettings}
-                            className="w-9 h-9 flex items-center justify-center text-zinc-400 hover:text-white transition-colors"
-                            title="設定"
-                        >
-                            <Settings size={18} />
+                            {isScanning ? "掃描中" : "重新掃描"}
                         </button>
                     </div>
-                )}
-            </div>
-        </header>
+                    <div className="mt-6 flex items-end justify-between gap-4">
+                        <div>
+                            <h1 className="text-3xl font-bold tracking-tight text-zinc-100">{filter.favorites_only ? "我的最愛" : "所有影片"}</h1>
+                            <p className="mt-1 text-sm text-zinc-500">{activeLibrary?.name || "尚未選擇媒體庫"} · 共 {totalCount} 部</p>
+                        </div>
+                        <div ref={desktopToolsRef} className="relative flex items-center gap-2">
+                            <button type="button" onClick={() => openDesktopPopover("filter")} className={`flex h-11 items-center gap-2 rounded-lg border px-4 text-sm font-medium ${activeFilterCount ? "border-indigo-500 bg-indigo-500/10 text-indigo-300" : "border-zinc-700 text-zinc-300 hover:border-zinc-600"}`}>
+                                <SlidersHorizontal size={17} />
+                                篩選{activeFilterCount > 0 && ` · ${activeFilterCount}`}
+                            </button>
+                            <button type="button" onClick={() => openDesktopPopover("sort")} className="flex h-11 min-w-48 items-center justify-between gap-3 rounded-lg border border-zinc-700 px-4 text-sm text-zinc-300 hover:border-zinc-600">
+                                {currentSortLabel}：{filter.sort_order === "ASC" ? "升冪" : "降冪"}
+                                <ChevronDown size={15} />
+                            </button>
+                            {desktopPopover && (
+                                <div className="absolute right-0 top-full z-50 mt-2 max-h-[70vh] w-[420px] overflow-y-auto rounded-xl border border-zinc-700 bg-zinc-900 p-5 shadow-2xl">
+                                    <div className="mb-4 flex items-center justify-between">
+                                        <h2 className="text-lg font-bold">{desktopPopover === "filter" ? "篩選" : "排序"}</h2>
+                                        <button type="button" onClick={() => setDesktopPopover(null)} aria-label="關閉" className="flex h-9 w-9 items-center justify-center rounded-lg text-zinc-500 hover:bg-zinc-800 hover:text-white"><X size={18} /></button>
+                                    </div>
+                                    {desktopPopover === "filter" ? (
+                                        <FilterFields value={draftFilter} genres={genres} levels={levels} onChange={setDraftFilter} />
+                                    ) : (
+                                        <SortFields value={draftFilter} onChange={setDraftFilter} />
+                                    )}
+                                    <div className="mt-5 grid grid-cols-2 gap-3 border-t border-zinc-800 pt-4">
+                                        {desktopPopover === "filter" && <button type="button" onClick={clearDraftFilters} className="min-h-11 rounded-lg border border-zinc-700 text-sm text-zinc-300">重設</button>}
+                                        <button type="button" onClick={applyDraft} className={`${desktopPopover === "sort" ? "col-span-2" : ""} min-h-11 rounded-lg bg-indigo-500 text-sm font-bold text-white hover:bg-indigo-400`}>套用{desktopPopover === "filter" ? "篩選" : "排序"}</button>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            </header>
+
+            {mobilePanel && (
+                <div className="fixed inset-0 z-[100] flex items-end bg-black/65 lg:hidden" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setMobilePanel(null)}>
+                    <section role="dialog" aria-modal="true" aria-label={mobilePanel === "library" ? "切換媒體庫" : mobilePanel === "filter" ? "篩選" : "排序"} className="max-h-[86dvh] w-full overflow-y-auto rounded-t-2xl border-t border-zinc-700 bg-[#15161b] px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-2 shadow-2xl">
+                        <div className="mx-auto mb-2 h-1 w-12 rounded-full bg-zinc-600" />
+                        <div className="sticky top-0 z-10 mb-3 flex items-center justify-between bg-[#15161b] py-2">
+                            <div>
+                                <h2 className="text-xl font-bold text-zinc-100">{mobilePanel === "library" ? "切換媒體庫" : mobilePanel === "filter" ? "篩選" : "排序"}</h2>
+                                {mobilePanel === "library" && <p className="mt-1 text-sm text-zinc-500">選擇要瀏覽的資料庫</p>}
+                            </div>
+                            <button type="button" onClick={() => setMobilePanel(null)} aria-label="關閉" className="flex h-11 w-11 items-center justify-center rounded-lg text-zinc-400 hover:bg-zinc-800"><X size={22} /></button>
+                        </div>
+
+                        {mobilePanel === "library" && (
+                            <div className="space-y-2">
+                                {libraries.map((library) => {
+                                    const selected = library.id === activeLibraryId;
+                                    return (
+                                        <button type="button" key={library.id} onClick={() => { onLibraryChange(library.id); setMobilePanel(null); }} className={`flex min-h-16 w-full items-center gap-3 rounded-xl border px-4 text-left ${selected ? "border-indigo-500 bg-indigo-500/10" : "border-zinc-700 bg-zinc-900"}`}>
+                                            <FolderOpen size={22} className={selected ? "text-indigo-400" : "text-zinc-500"} />
+                                            <span className="min-w-0 flex-1">
+                                                <span className="block truncate font-medium text-zinc-100">{library.name}</span>
+                                                {selected && <span className="block text-xs text-indigo-400">目前使用</span>}
+                                            </span>
+                                            {selected ? <span className="flex h-7 w-7 items-center justify-center rounded-full bg-indigo-500 text-white"><Check size={16} /></span> : <span className="h-6 w-6 rounded-full border-2 border-zinc-600" />}
+                                        </button>
+                                    );
+                                })}
+                                <button type="button" onClick={() => { setMobilePanel(null); onOpenSettings(); }} className="mt-4 flex min-h-14 w-full items-center gap-3 rounded-xl border border-zinc-700 px-4 text-left text-zinc-300">
+                                    <FolderCog size={20} className="text-indigo-400" />
+                                    <span className="flex-1">管理媒體庫</span>
+                                    <span aria-hidden="true">›</span>
+                                </button>
+                                <p className="pt-1 text-xs text-zinc-600">點選後立即切換</p>
+                            </div>
+                        )}
+
+                        {mobilePanel === "filter" && (
+                            <>
+                                <FilterFields value={draftFilter} genres={genres} levels={levels} onChange={setDraftFilter} />
+                                <p className="mt-4 text-xs text-zinc-500">已選 {filterCount(draftFilter)} 項條件</p>
+                                <div className="sticky bottom-0 -mx-4 mt-4 grid grid-cols-2 gap-3 border-t border-zinc-800 bg-[#15161b] px-4 pt-4">
+                                    <button type="button" onClick={clearDraftFilters} className="min-h-12 rounded-lg border border-zinc-700 text-sm font-medium text-zinc-300">重設</button>
+                                    <button type="button" onClick={applyDraft} className="min-h-12 rounded-lg bg-indigo-500 text-sm font-bold text-white">套用篩選</button>
+                                </div>
+                            </>
+                        )}
+
+                        {mobilePanel === "sort" && (
+                            <>
+                                <SortFields value={draftFilter} onChange={setDraftFilter} />
+                                <p className="mt-4 text-xs text-zinc-500">目前：{currentSortLabel}，{filter.sort_order === "ASC" ? "升冪" : "降冪"}</p>
+                                <div className="sticky bottom-0 -mx-4 mt-4 border-t border-zinc-800 bg-[#15161b] px-4 pt-4">
+                                    <button type="button" onClick={applyDraft} className="min-h-12 w-full rounded-lg bg-indigo-500 text-sm font-bold text-white">套用排序</button>
+                                </div>
+                            </>
+                        )}
+                    </section>
+                </div>
+            )}
+        </>
     );
 }

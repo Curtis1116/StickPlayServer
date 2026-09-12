@@ -7,7 +7,7 @@ COPY . .
 RUN npm run build
 
 # 第二階段：編譯後端 (Rust)
-FROM rust:1.85-bookworm AS backend-builder
+FROM rust:1.98-bookworm AS backend-builder
 WORKDIR /app
 # 安裝編譯所需的系統依賴 (openssl-sys, sqlite3-sys 等需使用)
 RUN apt-get update && apt-get install -y \
@@ -20,7 +20,7 @@ RUN apt-get update && apt-get install -y \
 COPY src-tauri ./src-tauri
 WORKDIR /app/src-tauri
 # 執行編譯 (核心為 Axum 伺服器)
-RUN cargo build --release
+RUN cargo build --locked --release --bin stickplay-server
 
 # 第三階段：執行環境 (Runtime)
 FROM debian:bookworm-slim

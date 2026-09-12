@@ -1,8 +1,24 @@
-import { FolderPlus, Trash2, FolderOpen, ArrowLeft, Plus, PlayCircle } from "lucide-react";
-
+import { useEffect, useState } from "react";
+import {
+    ArrowLeft,
+    ChevronDown,
+    Download,
+    FolderOpen,
+    FolderPlus,
+    PlayCircle,
+    Plus,
+    Trash2,
+} from "lucide-react";
 import { Library } from "../types";
-import { deleteDatabase, PlayerChoice, getAvailablePlayers, getPlayerPreference, setPlayerPreference } from "../api";
-import { useState, useEffect } from "react";
+import {
+    deleteDatabase,
+    getAvailablePlayers,
+    getPlayerPreference,
+    PlayerChoice,
+    setPlayerPreference,
+} from "../api";
+import { detectDevicePlatform } from "../player";
+import AccountSettings from "./AccountSettings";
 import FolderPickerModal from "./FolderPickerModal";
 
 const PLAYER_LABELS: Record<PlayerChoice, string> = {
@@ -10,122 +26,115 @@ const PLAYER_LABELS: Record<PlayerChoice, string> = {
     potplayer: "PotPlayer",
     vlc: "VLC",
     infuse: "Infuse",
+    justplayer: "Just Player",
 };
 
 interface SettingsPageProps {
     libraries: Library[];
     activeLibraryId: string;
     onBack: () => void;
-    onLibrariesChanged: (libs: Library[]) => void;
-    onLibraryChange: (id: string) => Promise<void>;
+    onLibrariesChanged: (libs: Library[], persisted?: boolean) => Promise<void>;
 }
 
-const STORE_KEY = "libraries";
-
-function LibraryNameInput({ initialName, onRename }: { initialName: string, onRename: (name: string) => void }) {
+function LibraryNameInput({ initialName, onRename }: { initialName: string; onRename: (name: string) => void }) {
     const [localName, setLocalName] = useState(initialName);
+    useEffect(() => setLocalName(initialName), [initialName]);
 
-    // Sync with external state if it changes unexpectedly
-    useEffect(() => {
-        setLocalName(initialName);
-    }, [initialName]);
-
-    const handleBlur = () => {
-        if (localName.trim() !== "" && localName !== initialName) {
-            onRename(localName);
-        } else if (localName.trim() === "") {
-            setLocalName(initialName);
-        }
-    };
-
-    const handleKeyDown = (e: React.KeyboardEvent) => {
-        if (e.key === "Enter") {
-            handleBlur();
-        }
+    const save = () => {
+        const next = localName.trim();
+        if (!next) setLocalName(initialName);
+        else if (next !== initialName) onRename(next);
     };
 
     return (
         <input
+            aria-label="媒體庫名稱"
             value={localName}
-            onChange={(e) => setLocalName(e.target.value)}
-            onBlur={handleBlur}
-            onKeyDown={handleKeyDown}
-            className="bg-transparent text-sm font-bold text-zinc-200 outline-none hover:bg-zinc-800 px-2 py-1 rounded transition-colors"
+            onClick={(event) => event.stopPropagation()}
+            onChange={(event) => setLocalName(event.target.value)}
+            onBlur={save}
+            onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }}
+            className="min-w-0 max-w-52 flex-1 rounded-md bg-transparent px-1 py-1 text-sm font-bold text-zinc-100 outline-none hover:bg-zinc-800 focus:bg-zinc-800"
         />
     );
 }
 
-export default function SettingsPage({
-    libraries,
-    activeLibraryId,
-    onBack,
-    onLibrariesChanged,
-    onLibraryChange,
-}: SettingsPageProps) {
+export default function SettingsPage({ libraries, activeLibraryId, onBack, onLibrariesChanged }: SettingsPageProps) {
+    const [error, setError] = useState("");
+    const [deleting, setDeleting] = useState(false);
     const [showFolderPicker, setShowFolderPicker] = useState(false);
     const [activeLibIndex, setActiveLibIndex] = useState<number | null>(null);
+    const [expandedLibraryId, setExpandedLibraryId] = useState(activeLibraryId || libraries[0]?.id || "");
     const [player, setPlayer] = useState<PlayerChoice>(getPlayerPreference());
     const availablePlayers = getAvailablePlayers();
+    const devicePlatform = detectDevicePlatform();
+    const playerTool = devicePlatform === "windows"
+        ? {
+            href: "/api/player-tools/windows",
+            label: "下載 Windows 播放器工具",
+            help: "解壓縮後執行 install.cmd，為目前帳號設定 PotPlayer 與 VLC。",
+        }
+        : devicePlatform === "macos"
+            ? {
+                href: "/api/player-tools/macos",
+                label: "下載 macOS VLC 工具",
+                help: "請先安裝 VLC；解壓縮後執行 Install StickPlay VLC.command。",
+            }
+            : null;
 
-    const handlePlayerChange = (p: PlayerChoice) => {
-        setPlayer(p);
-        setPlayerPreference(p);
-    };
+    useEffect(() => {
+        if (activeLibraryId) setExpandedLibraryId(activeLibraryId);
+    }, [activeLibraryId]);
 
-    const saveLibraries = async (newLibs: Library[]) => {
+    const saveLibraries = async (next: Library[]) => {
         try {
-            localStorage.setItem(`stickplay_${STORE_KEY}`, JSON.stringify(newLibs));
-            onLibrariesChanged(newLibs);
-        } catch (e) {
-            console.error("儲存媒體庫失敗:", e);
+            await onLibrariesChanged(next);
+            localStorage.setItem("stickplay_libraries", JSON.stringify(next));
+        } catch (reason) {
+            setError(`儲存失敗：${reason}`);
         }
     };
 
-    const handleAddLibrary = () => {
-        const name = `媒體庫 ${libraries.length + 1}`;
-        const newLib: Library = {
-            id: Date.now().toString(),
-            name,
-            paths: [],
-            db_name: `lib_${Date.now()}`
-        };
-        saveLibraries([...libraries, newLib]);
+    const handleAddLibrary = async () => {
+        const id = Date.now().toString();
+        const next = [...libraries, { id, name: `媒體庫 ${libraries.length + 1}`, paths: [], db_name: `lib_${id}` }];
+        setExpandedLibraryId(id);
+        await saveLibraries(next);
     };
 
     const handleRemoveLibrary = async (index: number) => {
-        const libToDelete = libraries[index];
-        const newLibs = libraries.filter((_, i) => i !== index);
-
-        if (libToDelete.id === activeLibraryId && newLibs.length > 0) {
-            await onLibraryChange(newLibs[0].id);
-        }
-
+        const library = libraries[index];
+        if (deleting || !window.confirm(`刪除「${library.name}」？\n影片檔案會保留；索引與收藏會從清單移除，伺服器會先備份資料庫。`)) return;
+        setDeleting(true);
+        setError("");
         try {
-            await deleteDatabase(libToDelete.db_name);
-        } catch (e) {
-            console.error("刪除資料庫檔案失敗:", e);
+            const remaining = await deleteDatabase(library.db_name);
+            await onLibrariesChanged(remaining, true);
+        } catch (reason) {
+            setError(`刪除失敗：${reason}`);
+        } finally {
+            setDeleting(false);
         }
-
-        saveLibraries(newLibs);
     };
 
-    const handleRenameLibrary = (index: number, newName: string) => {
-        const newLibs = [...libraries];
-        newLibs[index].name = newName;
-        saveLibraries(newLibs);
+    const handleRenameLibrary = (index: number, name: string) => {
+        const next = [...libraries];
+        next[index] = { ...next[index], name };
+        void saveLibraries(next);
     };
 
-    const handleAddPath = async (libraryIndex: number) => {
+    const handleAddPath = (libraryIndex: number) => {
         setActiveLibIndex(libraryIndex);
         setShowFolderPicker(true);
     };
 
     const handleFolderSelect = (selected: string) => {
-        if (activeLibIndex !== null && selected.trim() !== "") {
-            const newLibs = [...libraries];
-            if (!newLibs[activeLibIndex].paths.includes(selected.trim())) {
-                newLibs[activeLibIndex].paths.push(selected.trim());
-                saveLibraries(newLibs);
+        if (activeLibIndex !== null && selected.trim()) {
+            const next = [...libraries];
+            const path = selected.trim();
+            if (!next[activeLibIndex].paths.includes(path)) {
+                next[activeLibIndex] = { ...next[activeLibIndex], paths: [...next[activeLibIndex].paths, path] };
+                void saveLibraries(next);
             }
         }
         setShowFolderPicker(false);
@@ -133,160 +142,135 @@ export default function SettingsPage({
     };
 
     const handleRemovePath = (libraryIndex: number, pathIndex: number) => {
-        const newLibs = [...libraries];
-        newLibs[libraryIndex].paths = newLibs[libraryIndex].paths.filter((_, i) => i !== pathIndex);
-        saveLibraries(newLibs);
+        const next = [...libraries];
+        next[libraryIndex] = {
+            ...next[libraryIndex],
+            paths: next[libraryIndex].paths.filter((_, index) => index !== pathIndex),
+        };
+        void saveLibraries(next);
+    };
+
+    const choosePlayer = (choice: PlayerChoice) => {
+        setPlayer(choice);
+        setPlayerPreference(choice);
     };
 
     return (
-        <div className="page-transition-enter max-w-2xl mx-auto py-12 px-6">
-            {/* 返回按鈕 + 標題 */}
-            <div className="flex items-center gap-4 mb-8">
-                <button
-                    onClick={onBack}
-                    className="w-10 h-10 flex items-center justify-center rounded-xl bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 transition-colors"
-                >
-                    <ArrowLeft size={18} />
-                </button>
-                <div>
-                    <h1 className="text-2xl font-bold">設定</h1>
-                    <p className="text-sm text-zinc-500 mt-0.5">
-                        管理媒體庫與資料夾路徑
-                    </p>
-                </div>
+        <main className="page-transition-enter mx-auto w-full max-w-[1400px] px-4 pb-24 pt-4 sm:px-6 lg:px-8 lg:pb-10 lg:pt-7">
+            <button type="button" onClick={onBack} className="mb-4 flex min-h-11 items-center gap-2 rounded-lg text-sm font-medium text-zinc-400 hover:text-zinc-100">
+                <ArrowLeft size={18} />
+                返回影片庫
+            </button>
+            <div className="mb-6">
+                <h1 className="text-2xl font-bold tracking-tight text-zinc-100 lg:text-3xl">設定</h1>
+                <p className="mt-1 text-sm text-zinc-500">管理媒體庫、播放偏好與登入裝置</p>
             </div>
+            {error && <p role="alert" className="mb-4 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-300">{error}</p>}
 
-            {/* 媒體庫路徑 */}
-            <div className="glass-panel rounded-2xl p-6">
-                <div className="flex items-center justify-between mb-4">
-                    <div className="flex items-center gap-2">
-                        <FolderOpen size={18} className="text-indigo-400" />
-                        <h2 className="text-base font-bold">媒體庫列表</h2>
+            <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
+                <section className="rounded-xl border border-zinc-800 bg-zinc-900/35 p-4 lg:p-5">
+                    <div className="mb-4 flex items-start justify-between gap-3">
+                        <div>
+                            <div className="flex items-center gap-2">
+                                <FolderOpen size={20} className="text-indigo-400" />
+                                <h2 className="text-lg font-bold text-zinc-100">媒體庫</h2>
+                            </div>
+                            <p className="ml-7 mt-1 text-xs text-zinc-500">所有裝置共用</p>
+                        </div>
+                        <button type="button" onClick={handleAddLibrary} className="flex min-h-11 shrink-0 items-center gap-2 rounded-lg bg-indigo-500 px-3 text-sm font-bold text-white hover:bg-indigo-400">
+                            <FolderPlus size={17} />
+                            <span className="hidden sm:inline">新增媒體庫</span>
+                            <span className="sm:hidden">新增</span>
+                        </button>
                     </div>
-                    <button
-                        onClick={handleAddLibrary}
-                        className="flex items-center gap-1.5 px-4 py-2 bg-indigo-500 hover:bg-indigo-600 text-white text-sm font-bold rounded-xl transition-colors"
-                    >
-                        <FolderPlus size={14} />
-                        新增媒體庫
-                    </button>
-                </div>
 
-                {libraries.length === 0 ? (
-                    <div className="text-center py-12 text-zinc-600">
-                        <FolderOpen
-                            size={40}
-                            className="mx-auto mb-3 text-zinc-700"
-                        />
-                        <p className="text-sm">尚未設定任何媒體庫</p>
-                        <p className="text-xs text-zinc-700 mt-1">
-                            點擊「新增媒體庫」開始新增
-                        </p>
-                    </div>
-                ) : (
-                    <div className="flex flex-col gap-4">
-                        {libraries.map((lib, index) => (
-                            <div
-                                key={lib.id}
-                                className="flex flex-col bg-zinc-900/80 border border-zinc-800 rounded-xl px-5 py-4 group"
-                            >
-                                <div className="flex items-center justify-between border-b border-zinc-800/50 pb-3 mb-3">
-                                    <div className="flex items-center gap-2">
-                                        <LibraryNameInput
-                                            initialName={lib.name}
-                                            onRename={(newName) => handleRenameLibrary(index, newName)}
-                                        />
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                        <button
-                                            onClick={() => handleAddPath(index)}
-                                            className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-bold rounded-lg transition-colors"
-                                        >
-                                            <Plus size={14} />
-                                            新增路徑
-                                        </button>
-                                        {libraries.length > 1 && (
-                                            <button
-                                                onClick={() => handleRemoveLibrary(index)}
-                                                className="text-zinc-600 hover:text-red-400 transition-colors flex-shrink-0 ml-2 p-1.5 hover:bg-red-400/10 rounded-lg"
-                                                title="刪除此媒體庫"
-                                            >
-                                                <Trash2 size={16} />
+                    {libraries.length === 0 ? (
+                        <div className="rounded-lg border border-dashed border-zinc-700 py-12 text-center text-sm text-zinc-500">尚未建立媒體庫</div>
+                    ) : (
+                        <div className="space-y-2">
+                            {libraries.map((library, libraryIndex) => {
+                                const expanded = expandedLibraryId === library.id;
+                                const active = activeLibraryId === library.id;
+                                return (
+                                    <div key={library.id} className="overflow-hidden rounded-xl border border-zinc-700 bg-zinc-950/35">
+                                        <div className="flex min-h-14 items-center gap-2 px-3">
+                                            <button type="button" onClick={() => setExpandedLibraryId(expanded ? "" : library.id)} aria-label={expanded ? "收合媒體庫" : "展開媒體庫"} aria-expanded={expanded} className="flex h-11 w-8 shrink-0 items-center justify-center text-zinc-400">
+                                                <ChevronDown size={18} className={`transition-transform ${expanded ? "" : "-rotate-90"}`} />
                                             </button>
-                                        )}
-                                    </div>
-                                </div>
-
-                                {lib.paths.length === 0 ? (
-                                    <div className="text-center py-6 text-zinc-600 bg-zinc-950/30 rounded-lg border border-zinc-800/50 border-dashed">
-                                        <p className="text-sm">尚未加入任何路徑</p>
-                                    </div>
-                                ) : (
-                                    <div className="flex flex-col gap-2">
-                                        {lib.paths.map((path, pIndex) => (
-                                            <div
-                                                key={pIndex}
-                                                className="flex items-center justify-between bg-zinc-950/50 border border-zinc-800/50 rounded-lg px-3 py-2 group/path hover:border-zinc-700 transition-colors"
-                                            >
-                                                <div className="flex items-center gap-3 min-w-0">
-                                                    <FolderOpen
-                                                        size={14}
-                                                        className="text-zinc-500 flex-shrink-0"
-                                                    />
-                                                    <span className="text-sm text-zinc-400 truncate">
-                                                        {path}
-                                                    </span>
+                                            <FolderOpen size={18} className="shrink-0 text-zinc-500" />
+                                            <LibraryNameInput initialName={library.name} onRename={(name) => handleRenameLibrary(libraryIndex, name)} />
+                                            {active && <span className="hidden shrink-0 rounded-md bg-indigo-500/15 px-2 py-1 text-xs text-indigo-300 sm:inline">目前使用</span>}
+                                            <span className="ml-auto shrink-0 text-xs text-zinc-600">{library.paths.length} 個路徑</span>
+                                            {libraries.length > 1 && (
+                                                <button type="button" disabled={deleting} onClick={() => handleRemoveLibrary(libraryIndex)} aria-label={`刪除 ${library.name}`} className="flex h-11 w-10 shrink-0 items-center justify-center rounded-lg text-zinc-500 hover:bg-red-500/10 hover:text-red-400 disabled:opacity-50">
+                                                    <Trash2 size={16} />
+                                                </button>
+                                            )}
+                                        </div>
+                                        {expanded && (
+                                            <div className="border-t border-zinc-800 p-3">
+                                                <div className="space-y-2">
+                                                    {library.paths.map((path, pathIndex) => (
+                                                        <div key={path} className="flex min-h-11 items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-950/60 px-3">
+                                                            <FolderOpen size={15} className="shrink-0 text-zinc-600" />
+                                                            <span className="min-w-0 flex-1 truncate text-sm text-zinc-400">{path}</span>
+                                                            <button type="button" onClick={() => handleRemovePath(libraryIndex, pathIndex)} aria-label={`移除路徑 ${path}`} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-zinc-500 hover:bg-red-500/10 hover:text-red-400">
+                                                                <Trash2 size={15} />
+                                                            </button>
+                                                        </div>
+                                                    ))}
+                                                    {library.paths.length === 0 && <p className="py-3 text-center text-sm text-zinc-600">尚未加入任何路徑</p>}
                                                 </div>
-                                                <button
-                                                    onClick={() => handleRemovePath(index, pIndex)}
-                                                    className="text-zinc-600 hover:text-red-400 transition-colors ml-3 flex-shrink-0 opacity-0 group-hover/path:opacity-100 p-1"
-                                                >
-                                                    <Trash2 size={14} />
+                                                <button type="button" onClick={() => handleAddPath(libraryIndex)} className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-zinc-700 text-sm font-medium text-zinc-300 hover:border-indigo-500 hover:text-indigo-300">
+                                                    <Plus size={17} />新增路徑
                                                 </button>
                                             </div>
-                                        ))}
+                                        )}
                                     </div>
-                                )}
-                            </div>
+                                );
+                            })}
+                        </div>
+                    )}
+                    <p className="mt-4 text-xs text-zinc-600">修改路徑後，請返回影片庫重新掃描。</p>
+                </section>
+
+                <section className="rounded-xl border border-zinc-800 bg-zinc-900/35 p-4 lg:p-5">
+                    <div className="flex items-center gap-2">
+                        <PlayCircle size={20} className="text-indigo-400" />
+                        <h2 className="text-lg font-bold text-zinc-100">播放器</h2>
+                    </div>
+                    <p className="ml-7 mt-1 text-xs text-zinc-500">僅套用此瀏覽器</p>
+                    <p className="mb-2 mt-5 text-sm font-medium text-zinc-300">預設播放器</p>
+                    <div className="grid grid-cols-3 gap-2 lg:grid-cols-1">
+                        {availablePlayers.map((choice) => (
+                            <button type="button" key={choice} onClick={() => choosePlayer(choice)} className={`flex min-h-11 items-center justify-center gap-2 rounded-lg border px-2 text-sm font-medium lg:justify-start lg:px-3 ${player === choice ? "border-indigo-500 bg-indigo-500/15 text-indigo-300" : "border-zinc-700 text-zinc-400 hover:border-zinc-600"}`}>
+                                <span className={`h-4 w-4 shrink-0 rounded-full border-2 ${player === choice ? "border-[5px] border-indigo-400" : "border-zinc-600"}`} />
+                                <span className="truncate">{PLAYER_LABELS[choice]}</span>
+                            </button>
                         ))}
                     </div>
-                )}
-            </div>
+                    <p className="mt-4 text-xs leading-5 text-zinc-600">外部播放器需先安裝並完成設定。</p>
+                    {playerTool && (
+                        <div className="mt-4 border-t border-zinc-800 pt-4">
+                            <a
+                                href={playerTool.href}
+                                download
+                                className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-indigo-500/50 bg-indigo-500/10 px-3 text-sm font-bold text-indigo-300 hover:border-indigo-400 hover:bg-indigo-500/20"
+                            >
+                                <Download size={17} />
+                                {playerTool.label}
+                            </a>
+                            <p className="mt-2 text-xs leading-5 text-zinc-500">{playerTool.help}</p>
+                        </div>
+                    )}
+                </section>
 
-            {/* 播放器設定 */}
-            <div className="glass-panel rounded-2xl p-6 mt-6">
-                <div className="flex items-center gap-2 mb-4">
-                    <PlayCircle size={18} className="text-indigo-400" />
-                    <h2 className="text-base font-bold">播放器設定</h2>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                    {availablePlayers.map((p) => (
-                        <button
-                            key={p}
-                            onClick={() => handlePlayerChange(p)}
-                            className={`px-4 py-2 rounded-xl text-sm font-bold transition-colors border ${
-                                player === p
-                                    ? "bg-indigo-500 border-indigo-500 text-white"
-                                    : "bg-zinc-900 border-zinc-800 text-zinc-300 hover:bg-zinc-800"
-                            }`}
-                        >
-                            {PLAYER_LABELS[p]}
-                        </button>
-                    ))}
+                <div className="lg:col-span-2">
+                    <AccountSettings />
                 </div>
             </div>
 
-            {/* 提示 */}
-            <p className="text-xs text-zinc-600 mt-4 px-2">
-                修改媒體庫路徑後，切換回主畫面並點擊右上角的重新掃描按鈕即可索引新影片。
-            </p>
-
-            {showFolderPicker && (
-                <FolderPickerModal
-                    onClose={() => setShowFolderPicker(false)}
-                    onSelect={handleFolderSelect}
-                />
-            )}
-        </div>
+            {showFolderPicker && <FolderPickerModal onClose={() => { setShowFolderPicker(false); setActiveLibIndex(null); }} onSelect={handleFolderSelect} />}
+        </main>
     );
 }
