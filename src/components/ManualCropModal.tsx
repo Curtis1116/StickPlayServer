@@ -1,9 +1,10 @@
 import { useState, useRef, useEffect, SyntheticEvent } from "react";
+import { useDialogFocus } from "../useDialogFocus";
 import { createPortal } from "react-dom";
 import { X, Check, Search, ChevronLeft, ChevronRight } from "lucide-react";
-import ReactCrop, { Crop, PixelCrop, centerCrop, makeAspectCrop } from 'react-image-crop';
+import ReactCrop, { Crop, PixelCrop, centerCrop, makeAspectCrop, convertToPixelCrop } from 'react-image-crop';
 import 'react-image-crop/dist/ReactCrop.css';
-import { getFolderImages, cropAndSavePoster, readImage } from "../api";
+import { getFolderImages, cropAndSavePoster, readImage, scopedUrl } from "../api";
 
 const DEFAULT_ASPECT = 2 / 3;
 const MIN_ASPECT = 0.6;
@@ -24,6 +25,7 @@ export default function ManualCropModal({
     onSaved,
     onToast,
 }: ManualCropModalProps) {
+    const dialogRef = useDialogFocus(onClose);
     const [images, setImages] = useState<string[]>([]);
     const [selectedIndex, setSelectedIndex] = useState(0);
     const [loading, setLoading] = useState(true);
@@ -59,7 +61,8 @@ export default function ManualCropModal({
     }, [selectedIndex, images]);
 
     const updateImgUrl = async (path: string) => {
-        const url = await readImage(path);
+        setCompletedCrop(undefined);
+        const url = await readImage(path, undefined, false);
         setImgUrl(url);
     };
 
@@ -77,7 +80,7 @@ export default function ManualCropModal({
             height
         );
         setCrop(initialCrop);
-        setCompletedCrop(undefined);
+        setCompletedCrop(convertToPixelCrop(initialCrop, width, height));
     };
 
     // 允許拖曳邊界自由調整比例，但限制在 0.6~0.8 之間
@@ -149,7 +152,7 @@ export default function ManualCropModal({
     };
 
     return createPortal(
-        <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
+        <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="手動裁切海報" className="fixed inset-0 z-[1100] flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-black/90 backdrop-blur-md" onClick={onClose} />
             
             <div className="relative w-full max-w-5xl bg-zinc-900 rounded-2xl border border-white/10 shadow-2xl flex flex-col h-[90vh] overflow-hidden animate-in fade-in zoom-in duration-200">
@@ -158,7 +161,7 @@ export default function ManualCropModal({
                         <Search size={18} className="text-indigo-400" />
                         手動裁切海報
                     </h2>
-                    <button onClick={onClose} className="p-1.5 hover:bg-white/5 rounded-full transition-colors">
+                    <button aria-label="關閉裁切" onClick={onClose} className="p-1.5 hover:bg-white/5 rounded-full transition-colors">
                         <X size={18} />
                     </button>
                 </div>
@@ -168,6 +171,8 @@ export default function ManualCropModal({
                         {images.map((path, idx) => (
                             <button
                                 key={path}
+                                aria-label={`選擇圖片 ${idx + 1}`}
+                                aria-pressed={idx === selectedIndex}
                                 onClick={() => setSelectedIndex(idx)}
                                 className={`flex-shrink-0 w-16 sm:w-20 md:w-full aspect-[2/3] rounded-lg overflow-hidden border-2 transition-all ${
                                     idx === selectedIndex ? "border-indigo-500 scale-95" : "border-transparent opacity-50 hover:opacity-100"
@@ -187,7 +192,10 @@ export default function ManualCropModal({
                             <ReactCrop
                                 crop={crop}
                                 onChange={handleCropChange}
-                                onComplete={(c: PixelCrop) => setCompletedCrop(c)}
+                                onComplete={(c: PixelCrop) => {
+                                    const img = imgRef.current;
+                                    if (img) setCompletedCrop(clampCropAspect(c, img.width, img.height));
+                                }}
                                 className="max-h-full"
                             >
                                 <img
@@ -205,12 +213,14 @@ export default function ManualCropModal({
                         {images.length > 1 && (
                             <>
                                 <button 
+                                    aria-label="上一張圖片"
                                     onClick={() => setSelectedIndex(prev => (prev - 1 + images.length) % images.length)}
                                     className="absolute left-4 top-1/2 -translate-y-1/2 p-3 bg-black/60 rounded-full hover:bg-black/90 text-white transition-all shadow-xl"
                                 >
                                     <ChevronLeft size={24} />
                                 </button>
                                 <button 
+                                    aria-label="下一張圖片"
                                     onClick={() => setSelectedIndex(prev => (prev + 1) % images.length)}
                                     className="absolute right-4 top-1/2 -translate-y-1/2 p-3 bg-black/60 rounded-full hover:bg-black/90 text-white transition-all shadow-xl"
                                 >
@@ -243,5 +253,5 @@ export default function ManualCropModal({
 }
 
 function readImageSync(path: string) {
-    return `/api/image?path=${encodeURIComponent(path)}`;
+    return scopedUrl(`/api/image?path=${encodeURIComponent(path)}`);
 }

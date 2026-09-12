@@ -122,6 +122,8 @@ Windows 或 macOS 的設定頁會依目前裝置顯示播放器工具下載按�
 -   **Windows**：下載並解壓縮後執行 `install.cmd`。工具會複製到 `%LOCALAPPDATA%\StickPlay\PlayerBridge`，並為目前 Windows 帳號註冊 PotPlayer 與 VLC，不需要系統管理員權限。執行同一個 ZIP 內的 `uninstall.cmd` 可完整移除。
 -   **macOS**：先安裝 VLC，下載並解壓縮後執行 `Install StickPlay VLC.command`。工具會在 `~/Applications` 建立輕量啟動 App 並註冊 `stickplay-vlc:`，不需要系統管理員權限。若 Gatekeeper 阻擋，請在 Finder 對該檔案按右鍵並選擇「打開」。同一個 ZIP 內提供解除安裝工具。
 
+macOS 的 VLC 工具會為每次點擊的影片開啟獨立 VLC 視窗，讓多部影片同時播放。已安裝舊版工具的使用者，請在更新伺服器後重新下載並執行安裝工具，以套用此行為。
+
 macOS 上的 Infuse 安裝後即可直接使用，不需要下載橋接工具。
 
 設定完成後，每次點擊播放時瀏覽器仍會跳出一次「是否允許開啟外部應用程式」的確認視窗，這是瀏覽器原生的安全機制，可勾選「一律允許」關閉提示。若清單中的播放器實際上未安裝在該裝置，點擊播放將不會有反應。

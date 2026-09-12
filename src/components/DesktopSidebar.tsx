@@ -1,11 +1,14 @@
-import { Film, FolderOpen, Grid2X2, Settings, Star } from "lucide-react";
+import { useState } from "react";
+import { ChevronDown, ChevronsLeft, ChevronsRight, Film, FolderOpen, Grid2X2, Settings, Star } from "lucide-react";
 import { Library, VideoFilter } from "../types";
+import Header from "./Header";
 
 interface DesktopSidebarProps {
     page: "main" | "settings";
     libraries: Library[];
     activeLibraryId: string;
     genres: string[];
+    levels: string[];
     filter: VideoFilter;
     totalCount: number;
     favoriteCount: number;
@@ -14,135 +17,45 @@ interface DesktopSidebarProps {
     onFilterChange: (filter: VideoFilter) => void;
     onOpenMain: () => void;
     onOpenSettings: () => void;
+    onRefresh: () => void;
 }
 
-export default function DesktopSidebar({
-    page,
-    libraries,
-    activeLibraryId,
-    genres,
-    filter,
-    totalCount,
-    favoriteCount,
-    isScanning,
-    onLibraryChange,
-    onFilterChange,
-    onOpenMain,
-    onOpenSettings,
-}: DesktopSidebarProps) {
-    const clearCatalogFilters = () => {
-        onOpenMain();
-        onFilterChange({
-            ...filter,
-            search: undefined,
-            genres: undefined,
-            levels: undefined,
-            favorites_only: undefined,
-        });
-    };
-
-    const showFavorites = () => {
-        onOpenMain();
-        onFilterChange({ ...filter, search: undefined, favorites_only: true, genres: undefined, levels: undefined });
-    };
-
-    const selectGenre = (genre?: string) => {
-        onOpenMain();
-        onFilterChange({
-            ...filter,
-            genres: genre ? [genre] : undefined,
-            favorites_only: undefined,
-        });
-    };
-
-    const navClass = (active: boolean) =>
-        `flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-left text-sm transition-colors ${
-            active
-                ? "bg-indigo-500/20 text-indigo-200"
-                : "text-zinc-400 hover:bg-zinc-800/70 hover:text-zinc-100"
-        }`;
-
+export default function DesktopSidebar(props: DesktopSidebarProps) {
+    const { page, libraries, activeLibraryId, genres, filter, totalCount, favoriteCount, isScanning, onLibraryChange, onFilterChange, onOpenMain, onOpenSettings } = props;
+    const [collapsed, setCollapsed] = useState(false);
+    const updateFilter = (next: VideoFilter) => { onOpenMain(); onFilterChange(next); };
+    const navClass = (active: boolean) => `flex min-h-11 w-full items-center rounded-lg text-left text-sm ${collapsed ? "justify-center" : "gap-3 px-3"} ${active ? "bg-indigo-500/20 text-indigo-200" : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"}`;
     return (
-        <aside className="sticky top-0 hidden h-[100dvh] w-72 shrink-0 flex-col border-r border-zinc-800 bg-[#121318] px-4 py-5 lg:flex">
-            <div className="mb-7 flex items-center gap-3 px-2">
-                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-500 text-white">
-                    <Film size={17} fill="currentColor" />
-                </span>
-                <span className="text-xl font-bold tracking-tight text-zinc-100">
-                    StickPlay<span className="text-indigo-400">Server</span>
-                </span>
+        <aside aria-label="桌面功能列" className={`sticky top-0 hidden h-[100dvh] shrink-0 flex-col overflow-y-auto border-r border-zinc-800 bg-[#121318] py-3 lg:flex ${collapsed ? "w-14 px-1" : "w-60 px-3"}`}>
+            <div className={`mb-3 flex min-h-11 items-center ${collapsed ? "justify-center" : "justify-between gap-1"}`}>
+                {!collapsed && <span className="min-w-0 truncate text-base font-bold tracking-tight text-zinc-100">StickPlay<span className="text-indigo-400">Server</span></span>}
+                <button type="button" onClick={() => setCollapsed((value) => !value)} aria-label={collapsed ? "展開側欄" : "收折側欄"} title={collapsed ? "展開側欄" : "收折側欄"} aria-expanded={!collapsed} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-zinc-400 hover:bg-zinc-800">{collapsed ? <ChevronsRight size={19} /> : <ChevronsLeft size={19} />}</button>
             </div>
-
-            <label className="relative mb-5 block">
-                <span className="sr-only">切換媒體庫</span>
-                <FolderOpen className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" size={17} />
-                <select
-                    value={activeLibraryId}
-                    onChange={(event) => onLibraryChange(event.target.value)}
-                    className="h-12 w-full appearance-none rounded-lg border border-zinc-700 bg-zinc-900 pl-10 pr-9 text-sm font-medium text-zinc-100 outline-none transition-colors hover:border-zinc-600 focus:border-indigo-500"
-                >
-                    {libraries.length === 0 && <option value="">尚未建立媒體庫</option>}
-                    {libraries.map((library) => (
-                        <option key={library.id} value={library.id}>{library.name}</option>
-                    ))}
+            <label className="relative mb-3 block shrink-0" title={`切換資料庫：${libraries.find((library) => library.id === activeLibraryId)?.name || "尚未選擇"}`}>
+                <span className="sr-only">切換資料庫</span>
+                <FolderOpen className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" size={18} />
+                <select value={activeLibraryId} onChange={(event) => { onOpenMain(); onLibraryChange(event.target.value); }} className={`h-11 w-full appearance-none rounded-lg border border-zinc-700 bg-zinc-900 text-sm outline-none focus:border-indigo-500 ${collapsed ? "text-transparent" : "pl-9 pr-7 text-zinc-100"}`}>
+                    {libraries.length === 0 && <option value="">尚未建立資料庫</option>}
+                    {libraries.map((library) => <option className="text-zinc-100" key={library.id} value={library.id}>{library.name}</option>)}
                 </select>
-                <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500">⌄</span>
+                {!collapsed && <ChevronDown size={14} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500" />}
             </label>
-
             <nav className="space-y-1" aria-label="主要導覽">
-                <button
-                    type="button"
-                    onClick={clearCatalogFilters}
-                    className={navClass(page === "main" && !filter.favorites_only && !filter.genres?.length)}
-                >
-                    <Film size={18} />
-                    <span className="flex-1">所有影片</span>
-                    <span className="tabular-nums text-xs text-zinc-500">{totalCount}</span>
-                </button>
-                <button
-                    type="button"
-                    onClick={showFavorites}
-                    className={navClass(page === "main" && Boolean(filter.favorites_only))}
-                >
-                    <Star size={18} />
-                    <span className="flex-1">我的最愛</span>
-                    <span className="tabular-nums text-xs text-zinc-500">{favoriteCount}</span>
-                </button>
+                <button type="button" aria-label={`所有影片，共 ${totalCount} 部`} title={`所有影片 · ${totalCount}`} onClick={() => updateFilter({ ...filter, search: undefined, genres: undefined, levels: undefined, favorites_only: undefined })} className={navClass(page === "main" && !filter.favorites_only && !filter.genres?.length)}><Film size={18} className="shrink-0" />{!collapsed && <><span className="flex-1">所有影片</span><span className="text-xs tabular-nums text-zinc-500">{totalCount}</span></>}</button>
+                <button type="button" aria-label={`我的最愛，共 ${favoriteCount} 部`} title={`我的最愛 · ${favoriteCount}`} onClick={() => updateFilter({ ...filter, search: undefined, favorites_only: true, genres: undefined, levels: undefined })} className={navClass(page === "main" && Boolean(filter.favorites_only))}><Star size={18} className="shrink-0" />{!collapsed && <><span className="flex-1">我的最愛</span><span className="text-xs tabular-nums text-zinc-500">{favoriteCount}</span></>}</button>
             </nav>
-
-            <div className="my-5 h-px bg-zinc-800" />
-            <p className="mb-2 px-3 text-xs font-medium text-zinc-600">分類</p>
-            <nav className="space-y-1" aria-label="影片分類">
-                <button
-                    type="button"
-                    onClick={() => selectGenre()}
-                    className={navClass(false)}
-                >
-                    <Grid2X2 size={18} />
-                    <span>全部類型</span>
-                </button>
-                {genres.slice(0, 6).map((genre) => (
-                    <button
-                        key={genre}
-                        type="button"
-                        onClick={() => selectGenre(genre)}
-                        className={navClass(page === "main" && filter.genres?.length === 1 && filter.genres[0] === genre)}
-                    >
-                        <span className="ml-1 h-1.5 w-1.5 rounded-full bg-zinc-600" />
-                        <span className="truncate">{genre}</span>
-                    </button>
-                ))}
-            </nav>
-
-            <div className="mt-auto space-y-3">
-                <button type="button" onClick={onOpenSettings} className={navClass(page === "settings")}>
-                    <Settings size={18} />
-                    <span>設定</span>
-                </button>
-                <div className="flex items-center gap-2 border-t border-zinc-800 px-3 pt-4 text-xs text-zinc-500">
-                    <span className={`h-2 w-2 rounded-full ${isScanning ? "animate-pulse bg-amber-400" : "bg-emerald-400"}`} />
-                    {isScanning ? "正在掃描媒體庫" : "媒體庫已就緒"}
-                </div>
+            <Header {...props} onFilterChange={updateFilter} variant={collapsed ? "rail" : "sidebar"} />
+            {!collapsed && <>
+                <div className="my-4 h-px shrink-0 bg-zinc-800" />
+                <p className="mb-2 px-3 text-xs text-zinc-500">分類</p>
+                <nav className="space-y-1" aria-label="影片分類">
+                    <button type="button" onClick={() => updateFilter({ ...filter, genres: undefined, favorites_only: undefined })} className={navClass(false)}><Grid2X2 size={18} /><span>全部類型</span></button>
+                    {genres.slice(0, 6).map((genre) => <button type="button" key={genre} onClick={() => updateFilter({ ...filter, genres: [genre], favorites_only: undefined })} className={navClass(page === "main" && filter.genres?.length === 1 && filter.genres[0] === genre)}><span className="h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-500" /><span className="truncate">{genre}</span></button>)}
+                </nav>
+            </>}
+            <div className="mt-auto space-y-2 pt-4">
+                <button type="button" onClick={onOpenSettings} aria-label="設定" title="設定" className={navClass(page === "settings")}><Settings size={18} />{!collapsed && <span>設定</span>}</button>
+                <div title={isScanning ? "正在掃描資料庫" : "資料庫已就緒"} className={`flex items-center gap-2 border-t border-zinc-800 pt-3 text-xs text-zinc-500 ${collapsed ? "justify-center" : "px-3"}`}><span className={`h-2 w-2 shrink-0 rounded-full ${isScanning ? "animate-pulse bg-amber-400" : "bg-emerald-400"}`} />{!collapsed && (isScanning ? "正在掃描資料庫" : "資料庫已就緒")}</div>
             </div>
         </aside>
     );

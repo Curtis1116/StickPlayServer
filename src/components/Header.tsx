@@ -1,16 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-    Check,
-    ChevronDown,
-    FolderCog,
-    FolderOpen,
-    RefreshCw,
-    Search,
-    Settings,
-    SlidersHorizontal,
-    X,
-} from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { ArrowDownUp, Check, ChevronDown, FolderCog, FolderOpen, RefreshCw, Search, Settings, SlidersHorizontal, Star } from "lucide-react";
 import { Library, VideoFilter } from "../types";
+import CatalogDialog from "./CatalogDialog";
 
 interface HeaderProps {
     libraries: Library[];
@@ -24,10 +15,9 @@ interface HeaderProps {
     onRefresh: () => void;
     onOpenSettings: () => void;
     isScanning: boolean;
+    variant?: "mobile" | "sidebar" | "rail";
 }
-
-type MobilePanel = "library" | "filter" | "sort" | null;
-type DesktopPopover = "filter" | "sort" | null;
+type Panel = "library" | "filter" | "sort" | "search" | null;
 
 const SORT_OPTIONS = [
     { value: "date_added", label: "加入日期" },
@@ -38,10 +28,6 @@ const SORT_OPTIONS = [
     { value: "id", label: "番號" },
     { value: "level", label: "分級" },
 ];
-
-function filterCount(filter: VideoFilter) {
-    return Number(Boolean(filter.favorites_only)) + (filter.genres?.length || 0) + (filter.levels?.length || 0);
-}
 
 function toggleListValue(values: string[] | undefined, value: string) {
     const current = values || [];
@@ -186,233 +172,57 @@ function SortFields({ value, onChange }: { value: VideoFilter; onChange: (filter
     );
 }
 
-export default function Header({
-    libraries,
-    activeLibraryId,
-    onLibraryChange,
-    genres,
-    levels,
-    filter,
-    totalCount,
-    onFilterChange,
-    onRefresh,
-    onOpenSettings,
-    isScanning,
-}: HeaderProps) {
-    const [searchValue, setSearchValue] = useState(filter.search || "");
-    const [mobilePanel, setMobilePanel] = useState<MobilePanel>(null);
-    const [desktopPopover, setDesktopPopover] = useState<DesktopPopover>(null);
-    const [draftFilter, setDraftFilter] = useState<VideoFilter>(filter);
-    const debounceRef = useRef<ReturnType<typeof setTimeout>>(null);
-    const filterRef = useRef(filter);
-    const desktopToolsRef = useRef<HTMLDivElement>(null);
+export default function Header({ libraries, activeLibraryId, onLibraryChange, genres, levels, filter, totalCount, onFilterChange, onRefresh, onOpenSettings, isScanning, variant = "mobile" }: HeaderProps) {
+    const [panel, setPanel] = useState<Panel>(null);
+    const [draft, setDraft] = useState(filter);
     const activeLibrary = libraries.find((library) => library.id === activeLibraryId);
-    const activeFilterCount = filterCount(filter);
-    const currentSortLabel = SORT_OPTIONS.find((option) => option.value === (filter.sort_by || "date_added"))?.label || "加入日期";
-
-    useEffect(() => {
-        filterRef.current = filter;
-        setSearchValue(filter.search || "");
-    }, [filter]);
-
-    const handleSearchChange = useCallback((value: string) => {
-        setSearchValue(value);
-        if (debounceRef.current) clearTimeout(debounceRef.current);
-        debounceRef.current = setTimeout(() => {
-            onFilterChange({ ...filterRef.current, search: value || undefined });
-        }, 300);
-    }, [onFilterChange]);
-
-    useEffect(() => () => {
-        if (debounceRef.current) clearTimeout(debounceRef.current);
-    }, []);
-
-    useEffect(() => {
-        if (!mobilePanel) return;
-        const previousOverflow = document.body.style.overflow;
-        document.body.style.overflow = "hidden";
-        return () => { document.body.style.overflow = previousOverflow; };
-    }, [mobilePanel]);
-
-    useEffect(() => {
-        const close = (event: MouseEvent) => {
-            if (desktopToolsRef.current && !desktopToolsRef.current.contains(event.target as Node)) {
-                setDesktopPopover(null);
-            }
-        };
-        document.addEventListener("mousedown", close);
-        return () => document.removeEventListener("mousedown", close);
-    }, []);
-
-    const openMobilePanel = (panel: Exclude<MobilePanel, null>) => {
-        setDraftFilter({ ...filter, search: searchValue || undefined });
-        setMobilePanel(panel);
+    const activeCount = (filter.genres?.length || 0) + (filter.levels?.length || 0);
+    const sortLabel = SORT_OPTIONS.find((option) => option.value === (filter.sort_by || "date_added"))?.label || "加入日期";
+    const sortDescription = `${sortLabel}：${filter.sort_order === "ASC" ? "升冪" : "降冪"}`;
+    useEffect(() => { setPanel(null); }, [activeLibraryId, variant]);
+    const open = (next: Panel) => { setDraft(filter); setPanel(next); };
+    const apply = () => {
+        // Apply only the fields belonging to this panel; preserve other live filters.
+        if (panel === "search") onFilterChange({ ...filter, search: draft.search?.trim() || undefined });
+        if (panel === "sort") onFilterChange({ ...filter, sort_by: draft.sort_by, sort_order: draft.sort_order });
+        if (panel === "filter") onFilterChange({ ...filter, genres: draft.genres, levels: draft.levels, favorites_only: draft.favorites_only });
+        setPanel(null);
     };
-
-    const openDesktopPopover = (panel: Exclude<DesktopPopover, null>) => {
-        setDraftFilter({ ...filter, search: searchValue || undefined });
-        setDesktopPopover((current) => current === panel ? null : panel);
-    };
-
-    const applyDraft = () => {
-        onFilterChange(draftFilter);
-        setMobilePanel(null);
-        setDesktopPopover(null);
-    };
-
-    const clearDraftFilters = () => setDraftFilter({
-        ...draftFilter,
-        favorites_only: undefined,
-        genres: undefined,
-        levels: undefined,
-    });
-
-    return (
-        <>
-            <header className="sticky top-0 z-30 border-b border-zinc-800 bg-[#101115]/95 backdrop-blur-xl">
-                <div className="lg:hidden">
-                    <div className="flex h-14 items-center gap-2 px-3">
-                        <span className="flex-1 text-lg font-bold tracking-tight text-zinc-100">
-                            StickPlay<span className="text-indigo-400">Server</span>
-                        </span>
-                        <button type="button" onClick={onRefresh} disabled={isScanning} aria-label="重新掃描" className="flex h-11 w-11 items-center justify-center rounded-lg text-zinc-400 hover:bg-zinc-800 hover:text-white disabled:opacity-50">
-                            <RefreshCw size={19} className={isScanning ? "animate-spin" : ""} />
-                        </button>
-                        <button type="button" onClick={onOpenSettings} aria-label="設定" className="flex h-11 w-11 items-center justify-center rounded-lg text-zinc-400 hover:bg-zinc-800 hover:text-white">
-                            <Settings size={20} />
-                        </button>
-                    </div>
-                    <div className="flex h-12 items-center gap-2 border-t border-zinc-800/60 px-3">
-                        <button type="button" onClick={() => openMobilePanel("library")} className="flex h-10 min-w-0 flex-1 items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-sm font-medium text-zinc-100">
-                            <FolderOpen size={17} className="shrink-0 text-zinc-400" />
-                            <span className="truncate">{activeLibrary?.name || "選擇媒體庫"}</span>
-                            <ChevronDown size={15} className="ml-auto shrink-0 text-zinc-500" />
-                        </button>
-                        <span className="shrink-0 text-xs tabular-nums text-zinc-500">{totalCount} 部</span>
-                        <button type="button" onClick={() => openMobilePanel("sort")} className="flex h-10 shrink-0 items-center gap-1 rounded-lg border border-zinc-700 px-3 text-sm font-medium text-zinc-200">
-                            排序 <ChevronDown size={14} />
-                        </button>
-                    </div>
-                    <div className="flex gap-2 px-3 pb-3 pt-1">
-                        <label className="relative min-w-0 flex-1">
-                            <span className="sr-only">搜尋演員或番號</span>
-                            <Search size={17} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
-                            <input type="search" value={searchValue} onChange={(event) => handleSearchChange(event.target.value)} placeholder="搜尋演員、番號" className="h-11 w-full rounded-lg border border-zinc-700 bg-zinc-900 pl-10 pr-3 text-base text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-indigo-500" />
-                        </label>
-                        <button type="button" onClick={() => openMobilePanel("filter")} className={`relative flex h-11 shrink-0 items-center gap-2 rounded-lg border px-3 text-sm font-medium ${activeFilterCount ? "border-indigo-500 bg-indigo-500/10 text-indigo-300" : "border-zinc-700 text-zinc-300"}`}>
-                            <SlidersHorizontal size={17} />
-                            篩選{activeFilterCount > 0 && ` · ${activeFilterCount}`}
-                        </button>
-                    </div>
-                </div>
-
-                <div className="hidden px-8 py-5 lg:block">
-                    <div className="flex items-center gap-5">
-                        <label className="relative max-w-4xl flex-1">
-                            <span className="sr-only">搜尋影片</span>
-                            <Search size={19} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500" />
-                            <input type="search" value={searchValue} onChange={(event) => handleSearchChange(event.target.value)} placeholder="搜尋片名、演員或番號" className="h-12 w-full rounded-lg border border-zinc-700 bg-zinc-900/70 pl-12 pr-4 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-indigo-500" />
-                        </label>
-                        <button type="button" onClick={onRefresh} disabled={isScanning} className="flex h-12 items-center gap-2 rounded-lg border border-zinc-700 px-4 text-sm font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white disabled:opacity-50">
-                            <RefreshCw size={18} className={isScanning ? "animate-spin" : ""} />
-                            {isScanning ? "掃描中" : "重新掃描"}
-                        </button>
-                    </div>
-                    <div className="mt-6 flex items-end justify-between gap-4">
-                        <div>
-                            <h1 className="text-3xl font-bold tracking-tight text-zinc-100">{filter.favorites_only ? "我的最愛" : "所有影片"}</h1>
-                            <p className="mt-1 text-sm text-zinc-500">{activeLibrary?.name || "尚未選擇媒體庫"} · 共 {totalCount} 部</p>
-                        </div>
-                        <div ref={desktopToolsRef} className="relative flex items-center gap-2">
-                            <button type="button" onClick={() => openDesktopPopover("filter")} className={`flex h-11 items-center gap-2 rounded-lg border px-4 text-sm font-medium ${activeFilterCount ? "border-indigo-500 bg-indigo-500/10 text-indigo-300" : "border-zinc-700 text-zinc-300 hover:border-zinc-600"}`}>
-                                <SlidersHorizontal size={17} />
-                                篩選{activeFilterCount > 0 && ` · ${activeFilterCount}`}
-                            </button>
-                            <button type="button" onClick={() => openDesktopPopover("sort")} className="flex h-11 min-w-48 items-center justify-between gap-3 rounded-lg border border-zinc-700 px-4 text-sm text-zinc-300 hover:border-zinc-600">
-                                {currentSortLabel}：{filter.sort_order === "ASC" ? "升冪" : "降冪"}
-                                <ChevronDown size={15} />
-                            </button>
-                            {desktopPopover && (
-                                <div className="absolute right-0 top-full z-50 mt-2 max-h-[70vh] w-[420px] overflow-y-auto rounded-xl border border-zinc-700 bg-zinc-900 p-5 shadow-2xl">
-                                    <div className="mb-4 flex items-center justify-between">
-                                        <h2 className="text-lg font-bold">{desktopPopover === "filter" ? "篩選" : "排序"}</h2>
-                                        <button type="button" onClick={() => setDesktopPopover(null)} aria-label="關閉" className="flex h-9 w-9 items-center justify-center rounded-lg text-zinc-500 hover:bg-zinc-800 hover:text-white"><X size={18} /></button>
-                                    </div>
-                                    {desktopPopover === "filter" ? (
-                                        <FilterFields value={draftFilter} genres={genres} levels={levels} onChange={setDraftFilter} />
-                                    ) : (
-                                        <SortFields value={draftFilter} onChange={setDraftFilter} />
-                                    )}
-                                    <div className="mt-5 grid grid-cols-2 gap-3 border-t border-zinc-800 pt-4">
-                                        {desktopPopover === "filter" && <button type="button" onClick={clearDraftFilters} className="min-h-11 rounded-lg border border-zinc-700 text-sm text-zinc-300">重設</button>}
-                                        <button type="button" onClick={applyDraft} className={`${desktopPopover === "sort" ? "col-span-2" : ""} min-h-11 rounded-lg bg-indigo-500 text-sm font-bold text-white hover:bg-indigo-400`}>套用{desktopPopover === "filter" ? "篩選" : "排序"}</button>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                </div>
-            </header>
-
-            {mobilePanel && (
-                <div className="fixed inset-0 z-[100] flex items-end bg-black/65 lg:hidden" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setMobilePanel(null)}>
-                    <section role="dialog" aria-modal="true" aria-label={mobilePanel === "library" ? "切換媒體庫" : mobilePanel === "filter" ? "篩選" : "排序"} className="max-h-[86dvh] w-full overflow-y-auto rounded-t-2xl border-t border-zinc-700 bg-[#15161b] px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-2 shadow-2xl">
-                        <div className="mx-auto mb-2 h-1 w-12 rounded-full bg-zinc-600" />
-                        <div className="sticky top-0 z-10 mb-3 flex items-center justify-between bg-[#15161b] py-2">
-                            <div>
-                                <h2 className="text-xl font-bold text-zinc-100">{mobilePanel === "library" ? "切換媒體庫" : mobilePanel === "filter" ? "篩選" : "排序"}</h2>
-                                {mobilePanel === "library" && <p className="mt-1 text-sm text-zinc-500">選擇要瀏覽的資料庫</p>}
-                            </div>
-                            <button type="button" onClick={() => setMobilePanel(null)} aria-label="關閉" className="flex h-11 w-11 items-center justify-center rounded-lg text-zinc-400 hover:bg-zinc-800"><X size={22} /></button>
-                        </div>
-
-                        {mobilePanel === "library" && (
-                            <div className="space-y-2">
-                                {libraries.map((library) => {
-                                    const selected = library.id === activeLibraryId;
-                                    return (
-                                        <button type="button" key={library.id} onClick={() => { onLibraryChange(library.id); setMobilePanel(null); }} className={`flex min-h-16 w-full items-center gap-3 rounded-xl border px-4 text-left ${selected ? "border-indigo-500 bg-indigo-500/10" : "border-zinc-700 bg-zinc-900"}`}>
-                                            <FolderOpen size={22} className={selected ? "text-indigo-400" : "text-zinc-500"} />
-                                            <span className="min-w-0 flex-1">
-                                                <span className="block truncate font-medium text-zinc-100">{library.name}</span>
-                                                {selected && <span className="block text-xs text-indigo-400">目前使用</span>}
-                                            </span>
-                                            {selected ? <span className="flex h-7 w-7 items-center justify-center rounded-full bg-indigo-500 text-white"><Check size={16} /></span> : <span className="h-6 w-6 rounded-full border-2 border-zinc-600" />}
-                                        </button>
-                                    );
-                                })}
-                                <button type="button" onClick={() => { setMobilePanel(null); onOpenSettings(); }} className="mt-4 flex min-h-14 w-full items-center gap-3 rounded-xl border border-zinc-700 px-4 text-left text-zinc-300">
-                                    <FolderCog size={20} className="text-indigo-400" />
-                                    <span className="flex-1">管理媒體庫</span>
-                                    <span aria-hidden="true">›</span>
-                                </button>
-                                <p className="pt-1 text-xs text-zinc-600">點選後立即切換</p>
-                            </div>
-                        )}
-
-                        {mobilePanel === "filter" && (
-                            <>
-                                <FilterFields value={draftFilter} genres={genres} levels={levels} onChange={setDraftFilter} />
-                                <p className="mt-4 text-xs text-zinc-500">已選 {filterCount(draftFilter)} 項條件</p>
-                                <div className="sticky bottom-0 -mx-4 mt-4 grid grid-cols-2 gap-3 border-t border-zinc-800 bg-[#15161b] px-4 pt-4">
-                                    <button type="button" onClick={clearDraftFilters} className="min-h-12 rounded-lg border border-zinc-700 text-sm font-medium text-zinc-300">重設</button>
-                                    <button type="button" onClick={applyDraft} className="min-h-12 rounded-lg bg-indigo-500 text-sm font-bold text-white">套用篩選</button>
-                                </div>
-                            </>
-                        )}
-
-                        {mobilePanel === "sort" && (
-                            <>
-                                <SortFields value={draftFilter} onChange={setDraftFilter} />
-                                <p className="mt-4 text-xs text-zinc-500">目前：{currentSortLabel}，{filter.sort_order === "ASC" ? "升冪" : "降冪"}</p>
-                                <div className="sticky bottom-0 -mx-4 mt-4 border-t border-zinc-800 bg-[#15161b] px-4 pt-4">
-                                    <button type="button" onClick={applyDraft} className="min-h-12 w-full rounded-lg bg-indigo-500 text-sm font-bold text-white">套用排序</button>
-                                </div>
-                            </>
-                        )}
-                    </section>
-                </div>
-            )}
-        </>
-    );
+    const iconClass = "relative flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-zinc-300 hover:bg-zinc-800 disabled:opacity-50";
+    const searchButton = <button type="button" onClick={() => open("search")} aria-label="搜尋影片" title="搜尋影片" className={`${iconClass} ${filter.search ? "bg-indigo-500/20 text-indigo-300" : ""} ${variant === "sidebar" ? "flex-1 border border-zinc-700" : ""}`}><Search size={19} /></button>;
+    const refreshButton = <button type="button" onClick={onRefresh} disabled={isScanning} aria-label="重新掃描" title={isScanning ? "掃描中" : "重新掃描"} className={`${iconClass} ${variant === "sidebar" ? "flex-1 border border-zinc-700" : ""}`}><RefreshCw size={19} className={isScanning ? "animate-spin" : ""} /></button>;
+    const sortButton = <button type="button" onClick={() => open("sort")} aria-label={`排序：${sortDescription}`} title={`排序：${sortDescription}`} className={variant === "sidebar" ? "flex min-h-11 w-full items-center gap-2 rounded-lg border border-zinc-700 px-3 text-sm text-zinc-300 hover:bg-zinc-800" : iconClass}><ArrowDownUp size={19} className="shrink-0" />{variant === "sidebar" && <><span className="min-w-0 flex-1 truncate">{sortLabel} {filter.sort_order === "ASC" ? "↑" : "↓"}</span><ChevronDown size={14} /></>}</button>;
+    const filterButton = <button type="button" onClick={() => open("filter")} aria-label={`篩選${activeCount ? `，已選 ${activeCount} 項` : ""}`} title="篩選" className={`${variant === "sidebar" ? "flex min-h-11 w-full items-center gap-2 rounded-lg border border-zinc-700 px-3 text-sm" : iconClass} ${activeCount ? "bg-indigo-500/20 text-indigo-300" : "text-zinc-300"}`}><SlidersHorizontal size={19} />{variant === "sidebar" && <span className="flex-1 text-left">篩選</span>}{activeCount > 0 && <span className={variant === "sidebar" ? "rounded-full bg-indigo-500 px-1.5 text-xs text-white" : "absolute right-0 top-0 rounded-full bg-indigo-500 px-1 text-[10px] text-white"}>{activeCount}</span>}</button>;
+    return <>
+        {variant === "mobile" ? <header className="sticky top-0 z-30 border-b border-zinc-800 bg-[#101115] lg:hidden">
+            <nav aria-label="影片工具列" className="flex h-14 items-center min-[360px]:px-1.5 sm:px-3">
+                <button type="button" onClick={() => open("library")} aria-label={`切換資料庫：${activeLibrary?.name || "尚未選擇"}`} title={activeLibrary?.name || "切換資料庫"} className="flex h-11 min-w-11 min-[360px]:mr-1 flex-1 items-center justify-center gap-1 overflow-hidden rounded-lg border border-zinc-700 bg-zinc-900 px-1.5 text-sm text-zinc-100"><FolderOpen size={18} className="shrink-0" /><span className="hidden min-w-0 truncate min-[360px]:block">{activeLibrary?.name || "資料庫"}</span><ChevronDown size={12} className="hidden shrink-0 min-[360px]:block" /></button>
+                {sortButton}{filterButton}
+                <button type="button" onClick={() => onFilterChange({ ...filter, favorites_only: !filter.favorites_only || undefined })} aria-label="只看我的最愛" aria-pressed={Boolean(filter.favorites_only)} title="只看我的最愛" className={`${iconClass} ${filter.favorites_only ? "bg-indigo-500/20 text-indigo-300" : ""}`}><Star size={19} fill={filter.favorites_only ? "currentColor" : "none"} /></button>
+                {searchButton}{refreshButton}
+                <button type="button" onClick={onOpenSettings} aria-label="設定" title="設定" className={iconClass}><Settings size={19} /></button>
+            </nav>
+        </header> : <div className={variant === "sidebar" ? "mt-4 space-y-2" : "mt-2 flex flex-col items-center gap-1"}>
+            {variant === "sidebar" ? <div className="flex gap-2">{searchButton}{refreshButton}</div> : <>{searchButton}{refreshButton}</>}
+            {sortButton}{filterButton}
+        </div>}
+        {panel && <CatalogDialog title={{ library: "切換資料庫", filter: "篩選", sort: "排序", search: "搜尋影片" }[panel]} onClose={() => setPanel(null)}>
+            {panel === "library" && <div className="space-y-2">
+                <p className="pb-2 text-sm text-zinc-400">{activeLibrary?.name || "尚未選擇資料庫"} · 共 {totalCount} 部</p>
+                {libraries.map((library) => <button type="button" key={library.id} onClick={() => { onLibraryChange(library.id); setPanel(null); }} className={`flex min-h-14 w-full items-center gap-3 rounded-lg border px-3 text-left ${library.id === activeLibraryId ? "border-indigo-500 bg-indigo-500/10 text-indigo-300" : "border-zinc-700 text-zinc-300"}`}><FolderOpen size={20} className="shrink-0" /><span className="min-w-0 flex-1 break-words">{library.name}</span>{library.id === activeLibraryId && <Check size={18} className="shrink-0" />}</button>)}
+                <button type="button" onClick={() => { setPanel(null); onOpenSettings(); }} className="flex min-h-12 w-full items-center gap-3 px-3 text-sm text-zinc-400"><FolderCog size={20} />管理媒體庫</button>
+            </div>}
+            {panel === "search" && <form onSubmit={(event) => { event.preventDefault(); apply(); }}>
+                <label className="text-sm text-zinc-400" htmlFor={`catalog-search-${variant}`}>片名、演員或番號</label>
+                <input id={`catalog-search-${variant}`} type="search" value={draft.search || ""} onChange={(event) => setDraft({ ...draft, search: event.target.value })} className="mt-2 h-12 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-base outline-none focus:border-indigo-500" />
+                <div className="mt-4 grid grid-cols-2 gap-3"><button type="button" onClick={() => { onFilterChange({ ...filter, search: undefined }); setPanel(null); }} className="min-h-11 rounded-lg border border-zinc-700">清除搜尋</button><button type="submit" className="min-h-11 rounded-lg bg-indigo-500 font-bold">搜尋</button></div>
+            </form>}
+            {panel === "filter" && <FilterFields value={draft} genres={genres} levels={levels} onChange={setDraft} />}
+            {panel === "sort" && <SortFields value={draft} onChange={setDraft} />}
+            {(panel === "filter" || panel === "sort") && <div className="sticky bottom-0 mt-4 flex gap-3 border-t border-zinc-800 bg-[#15161b] pt-4">
+                {panel === "filter" && <button type="button" onClick={() => setDraft({ ...draft, favorites_only: undefined, genres: undefined, levels: undefined })} className="min-h-11 flex-1 rounded-lg border border-zinc-700 text-sm">重設</button>}
+                <button type="button" onClick={apply} className="min-h-11 flex-1 rounded-lg bg-indigo-500 text-sm font-bold">套用{panel === "filter" ? "篩選" : "排序"}</button>
+            </div>}
+        </CatalogDialog>}
+    </>;
 }

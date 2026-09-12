@@ -78,7 +78,7 @@ export default function SettingsPage({ libraries, activeLibraryId, onBack, onLib
             ? {
                 href: "/api/player-tools/macos",
                 label: "下載 macOS VLC 工具",
-                help: "請先安裝 VLC；解壓縮後執行 Install StickPlay VLC.command。",
+                help: "請先安裝 VLC；解壓縮後執行 Install StickPlay VLC.command。每部影片會開啟獨立視窗；已安裝舊版工具者請重新安裝。",
             }
             : null;
 

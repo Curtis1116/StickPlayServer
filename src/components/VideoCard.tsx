@@ -2,8 +2,7 @@ import { memo, useEffect, useRef, useState } from "react";
 import {
     FolderOutput,
     MoreHorizontal,
-    Pencil,
-    Play,
+    Info,
     RefreshCw,
     Scissors,
     Star,
@@ -13,6 +12,7 @@ import { openVideo, readImage, rescanSingleVideo, toggleFavorite } from "../api"
 import EditVideoModal from "./EditVideoModal";
 import ManualCropModal from "./ManualCropModal";
 import MoveFolderModal from "./MoveFolderModal";
+import VideoInfoModal from "./VideoInfoModal";
 
 interface VideoCardProps {
     video: VideoEntry;
@@ -31,6 +31,7 @@ const VideoCard = memo(({
     onToast,
     onModalStateChange,
 }: VideoCardProps) => {
+    const [showInfo, setShowInfo] = useState(false);
     const [showRating, setShowRating] = useState(false);
     const [showCropModal, setShowCropModal] = useState(false);
     const [showMoveModal, setShowMoveModal] = useState(false);
@@ -40,10 +41,34 @@ const VideoCard = memo(({
     const [updateTrigger, setUpdateTrigger] = useState(0);
     const cardRef = useRef<HTMLDivElement>(null);
     const menuRef = useRef<HTMLDivElement>(null);
+    const tapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const cancelPendingTap = () => {
+        if (tapTimer.current !== null) clearTimeout(tapTimer.current);
+        tapTimer.current = null;
+    };
+    useEffect(() => {
+        const cancelOutside = (event: PointerEvent) => {
+            if (!cardRef.current?.contains(event.target as Node)) cancelPendingTap();
+        };
+        document.addEventListener("pointerdown", cancelOutside);
+        window.addEventListener("scroll", cancelPendingTap, true);
+        return () => {
+            cancelPendingTap();
+            document.removeEventListener("pointerdown", cancelOutside);
+            window.removeEventListener("scroll", cancelPendingTap, true);
+        };
+    }, [video.id]);
+    const anyModalOpen = showInfo || showRating || showCropModal || showMoveModal;
+    useEffect(() => {
+        if (!anyModalOpen) return;
+        const previous = document.body.style.overflow;
+        document.body.style.overflow = "hidden";
+        return () => { document.body.style.overflow = previous; };
+    }, [anyModalOpen]);
 
     useEffect(() => {
-        onModalStateChange(showRating || showCropModal || showMoveModal);
-    }, [showRating, showCropModal, showMoveModal, onModalStateChange]);
+        onModalStateChange(anyModalOpen);
+    }, [anyModalOpen, onModalStateChange]);
 
     useEffect(() => {
         if (!showMenu) return;
@@ -82,8 +107,23 @@ const VideoCard = memo(({
         }
     };
 
+    const handleCardClick = (event: React.MouseEvent) => {
+        if ((event.target as HTMLElement).closest("button, [role='dialog']")) return;
+        if (tapTimer.current !== null) {
+            cancelPendingTap();
+            void handlePlay();
+        } else {
+            // Keep playback inside the second click's user gesture (popup/player support).
+            tapTimer.current = setTimeout(() => {
+                tapTimer.current = null;
+                setShowInfo(true);
+            }, 300);
+        }
+    };
+
     const handleToggleFavorite = async (event: React.MouseEvent) => {
         event.stopPropagation();
+        cancelPendingTap();
         try {
             const newState = await toggleFavorite(video.id);
             onFavoriteToggled(video.id, newState);
@@ -116,19 +156,24 @@ const VideoCard = memo(({
     const year = video.release_date?.slice(0, 4);
 
     return (
-        <div ref={cardRef} className="movie-card group relative min-w-0">
+        <div ref={cardRef} className="movie-card group relative min-w-0" onClick={handleCardClick} onDoubleClick={(event) => event.preventDefault()} onContextMenu={(event) => {
+            if ((event.target as HTMLElement).closest("button, [role='dialog']")) return;
+            event.preventDefault();
+            cancelPendingTap();
+            setShowMenu(true);
+        }}>
             <div
                 role="button"
                 tabIndex={0}
-                aria-label={`播放 ${actorText} ${video.id}`}
-                onClick={handlePlay}
+                aria-label={`${actorText} ${video.id}；單擊顯示影片資訊、雙擊播放`}
                 onKeyDown={(event) => {
                     if (event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")) {
                         event.preventDefault();
-                        void handlePlay();
+                        cancelPendingTap();
+                        setShowInfo(true);
                     }
                 }}
-                className="relative aspect-[2/3] cursor-pointer overflow-hidden rounded-lg border border-zinc-800 bg-zinc-900 shadow-lg outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 lg:rounded-xl"
+                className="relative aspect-[2/3] touch-manipulation cursor-pointer overflow-hidden rounded-lg border border-zinc-800 bg-zinc-900 shadow-lg outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 lg:rounded-xl"
             >
                 {posterUrl ? (
                     <img src={posterUrl} alt="" className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" loading="lazy" />
@@ -145,9 +190,6 @@ const VideoCard = memo(({
 
                 {video.level && <span className="absolute right-2 top-2 hidden rounded bg-black/60 px-2 py-1 text-[10px] font-medium text-zinc-300 backdrop-blur-sm lg:block">{video.level}</span>}
 
-                <span className="absolute bottom-2 right-2 flex h-9 w-9 items-center justify-center rounded-full border border-white/30 bg-black/65 text-white backdrop-blur-sm lg:hidden">
-                    <Play size={15} fill="currentColor" className="ml-0.5" />
-                </span>
             </div>
 
             <div className="mt-1.5 min-w-0 px-0.5 lg:mt-3 lg:px-0">
@@ -156,19 +198,17 @@ const VideoCard = memo(({
                     <span className="shrink-0 text-[11px] font-bold tabular-nums text-amber-400 sm:text-xs lg:text-xs">★ {score}</span>
                 </div>
 
-                <p className="mt-1 hidden truncate text-sm text-zinc-300 lg:block">{video.title || video.id}</p>
-
-                <div className="relative mt-0.5 flex min-w-0 items-center gap-1" ref={menuRef}>
-                    <p className="min-w-0 flex-1 truncate text-[11px] text-zinc-500 lg:text-xs">
+                <div className="relative mt-0.5 flex min-w-0 items-center gap-1 lg:mt-1" ref={menuRef}>
+                    <p className="min-w-0 flex-1 truncate text-[11px] text-zinc-500 lg:text-sm lg:text-zinc-300">
                         <span className="lg:hidden">{video.id}</span>
-                        <span className="hidden lg:inline">{[year, video.id].filter(Boolean).join(" · ")}</span>
+                        <span className="hidden lg:inline">{video.title || video.id}</span>
                     </p>
-                    <button type="button" onClick={() => setShowMenu((value) => !value)} aria-label="更多操作" aria-expanded={showMenu} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-zinc-500 hover:bg-zinc-800 hover:text-white lg:hidden">
+                    <button type="button" onClick={() => { cancelPendingTap(); setShowMenu((value) => !value); }} aria-label="更多操作" aria-expanded={showMenu} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-zinc-500 hover:bg-zinc-800 hover:text-white lg:hidden">
                         <MoreHorizontal size={17} />
                     </button>
                     {showMenu && (
                         <div className="absolute bottom-9 right-0 z-30 w-40 overflow-hidden rounded-xl border border-zinc-700 bg-zinc-900 p-1 shadow-2xl">
-                            <button type="button" onClick={() => { setShowMenu(false); setShowRating(true); }} className="flex min-h-10 w-full items-center gap-2 rounded-lg px-3 text-left text-sm text-zinc-300 hover:bg-zinc-800"><Pencil size={15} />編輯資訊</button>
+                            <button type="button" onClick={() => { setShowMenu(false); setShowInfo(true); }} className="flex min-h-10 w-full items-center gap-2 rounded-lg px-3 text-left text-sm text-zinc-300 hover:bg-zinc-800"><Info size={15} />影片資訊</button>
                             <button type="button" onClick={() => { setShowMenu(false); setShowCropModal(true); }} className="flex min-h-10 w-full items-center gap-2 rounded-lg px-3 text-left text-sm text-zinc-300 hover:bg-zinc-800"><Scissors size={15} />裁切海報</button>
                             <button type="button" onClick={() => { setShowMenu(false); setShowMoveModal(true); }} className="flex min-h-10 w-full items-center gap-2 rounded-lg px-3 text-left text-sm text-zinc-300 hover:bg-zinc-800"><FolderOutput size={15} />搬移資料夾</button>
                             <button type="button" onClick={handleRescan} disabled={rescanning} className="flex min-h-10 w-full items-center gap-2 rounded-lg px-3 text-left text-sm text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"><RefreshCw size={15} className={rescanning ? "animate-spin" : ""} />重新索引</button>
@@ -176,17 +216,11 @@ const VideoCard = memo(({
                     )}
                 </div>
 
-                <div className="mt-2 hidden grid-cols-[1fr_auto] gap-2 lg:grid">
-                    <button type="button" onClick={handlePlay} className="flex h-10 items-center justify-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 text-sm font-medium text-zinc-200 hover:border-zinc-600 hover:bg-zinc-800">
-                        <Play size={14} fill="currentColor" />播放
-                    </button>
-                    <button type="button" onClick={() => setShowMenu((value) => !value)} aria-label="更多操作" className="flex h-10 w-11 items-center justify-center rounded-lg border border-zinc-700 text-zinc-400 hover:border-zinc-600 hover:text-white">
-                        <MoreHorizontal size={17} />
-                    </button>
-                </div>
+                <p className="hidden truncate text-xs text-zinc-500 lg:block">{[year, video.id].filter(Boolean).join(" · ")}</p>
             </div>
 
-            {showRating && <EditVideoModal video={video} onClose={() => setShowRating(false)} onSaved={(updated) => { onVideoUpdated(updated); setShowRating(false); }} onToast={onToast} />}
+            {showInfo && !showRating && !showCropModal && <VideoInfoModal video={video} posterUrl={posterUrl} onClose={() => setShowInfo(false)} onPlay={() => void handlePlay()} onEdit={() => setShowRating(true)} onCrop={() => setShowCropModal(true)} />}
+            {showRating && <EditVideoModal video={video} posterUrl={posterUrl} hidden={showCropModal} onCrop={() => setShowCropModal(true)} onClose={() => setShowRating(false)} onSaved={(updated) => { onVideoUpdated(updated); setShowRating(false); }} onToast={onToast} />}
             {showCropModal && <ManualCropModal folderPath={video.folder_path} videoId={video.id} onClose={() => setShowCropModal(false)} onSaved={(posterPath) => { onVideoUpdated({ ...video, poster_path: posterPath }); setUpdateTrigger((previous) => previous + 1); }} onToast={onToast} />}
             {showMoveModal && <MoveFolderModal video={video} onClose={() => setShowMoveModal(false)} onSaved={onVideoUpdated} onRemoved={(id) => onVideoRemoved?.(id)} onToast={onToast} />}
         </div>

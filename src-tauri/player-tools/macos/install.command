@@ -22,7 +22,7 @@ on «event GURLGURL» incomingURL
     set decodeScript to "function run(argv) { return decodeURIComponent(argv[0]); }"
     set videoURL to «event sysoexec» ("/usr/bin/osascript -l JavaScript -e " & quoted form of decodeScript & " -- " & quoted form of encodedURL)
     if videoURL does not start with "https://" and videoURL does not start with "http://" then return
-    «event sysoexec» ("/usr/bin/open -a VLC " & quoted form of videoURL)
+    «event sysoexec» ("/usr/bin/open -n -a VLC " & quoted form of videoURL)
 end «event GURLGURL»
 APPLESCRIPT
 

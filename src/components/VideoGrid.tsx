@@ -27,12 +27,22 @@ export default function VideoGrid({
         typeof window !== 'undefined' ? window.innerWidth - 24 : 390
     );
     const [offsetTop, setOffsetTop] = useState(0);
+    const [viewportWidth, setViewportWidth] = useState(() =>
+        typeof window !== "undefined" ? window.innerWidth : 1024
+    );
+
+    const hasVideos = videos.length > 0;
 
     useLayoutEffect(() => {
         if (!parentRef.current) return;
         
         // 紀錄目前的 offsetTop，供 WindowVirtualizer 正確減去 Header 等區域高度
-        setOffsetTop(parentRef.current.offsetTop);
+        const measureViewport = () => {
+            setViewportWidth(window.innerWidth);
+            if (parentRef.current) setOffsetTop(parentRef.current.getBoundingClientRect().top + window.scrollY);
+        };
+        measureViewport();
+        window.addEventListener("resize", measureViewport);
 
         const observer = new ResizeObserver((entries) => {
             for (const entry of entries) {
@@ -43,14 +53,17 @@ export default function VideoGrid({
         });
         
         observer.observe(parentRef.current);
-        return () => observer.disconnect();
-    }, []);
+        return () => {
+            observer.disconnect();
+            window.removeEventListener("resize", measureViewport);
+        };
+    }, [hasVideos]);
 
     const columns = useMemo(() => {
-        if (containerWidth < 640) return 3;
-        if (containerWidth < 1024) return 4;
+        if (viewportWidth < 640) return 3;
+        if (viewportWidth < 1024) return 4;
         return 5;
-    }, [containerWidth]);
+    }, [viewportWidth]);
 
     const videoRows = useMemo(() => {
         const rows: VideoEntry[][] = [];
@@ -61,13 +74,13 @@ export default function VideoGrid({
     }, [videos, columns]);
 
     const estimateRowHeight = useMemo(() => {
-        const isDesktop = typeof window !== "undefined" && window.matchMedia("(min-width: 1024px)").matches;
-        const gapX = containerWidth >= 640 ? 20 : 8;
+        const isDesktop = viewportWidth >= 1024;
+        const gapX = viewportWidth >= 640 ? 20 : 8;
         const gapY = isDesktop ? 28 : 14;
         const itemWidth = (containerWidth - (columns - 1) * gapX) / columns;
-        const detailsHeight = isDesktop ? 112 : 48;
+        const detailsHeight = isDesktop ? 80 : 58;
         return itemWidth * 1.5 + detailsHeight + gapY;
-    }, [containerWidth, columns]);
+    }, [containerWidth, columns, viewportWidth]);
 
     const virtualizer = useWindowVirtualizer({
         count: videoRows.length,
@@ -108,7 +121,7 @@ export default function VideoGrid({
                             key={virtualRow.key}
                             data-index={virtualRow.index}
                             ref={virtualizer.measureElement}
-                            className="absolute left-0 top-0 grid w-full gap-x-2 sm:gap-x-5"
+                            className="absolute left-0 top-0 grid w-full gap-x-2 pb-3 sm:gap-x-5 lg:pb-5"
                             style={{
                                 gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
                                 // 修正絕對定位的 translateY：因為父元素已經受 offsetTop 影響，
@@ -118,7 +131,7 @@ export default function VideoGrid({
                         >
                             {row.map((video) => (
                                 <VideoCard
-                                    key={video.id}
+                                    key={video.video_path}
                                     video={video}
                                     onFavoriteToggled={onFavoriteToggled}
                                     onVideoUpdated={onVideoUpdated}

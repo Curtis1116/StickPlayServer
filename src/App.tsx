@@ -5,7 +5,6 @@ import VideoGrid from "./components/VideoGrid";
 import SettingsPage from "./components/SettingsPage";
 import Toast from "./components/Toast";
 import DesktopSidebar from "./components/DesktopSidebar";
-import MobileNav from "./components/MobileNav";
 import { VideoEntry, VideoFilter } from "./types";
 import {
   selectedLibrary,
@@ -281,6 +280,8 @@ export default function App() {
         activeLibraryId={activeLibraryId}
         onLibraryChange={handleLibraryChange}
         genres={genres}
+        levels={levels}
+        onRefresh={handleScan}
         filter={filter}
         totalCount={totalCount}
         favoriteCount={favoriteCount}
@@ -313,7 +314,7 @@ export default function App() {
               onOpenSettings={() => setPage("settings")}
               isScanning={isScanning}
             />
-            <main className="mx-auto w-full max-w-[1600px] px-3 pb-24 pt-3 sm:px-6 sm:pt-6 lg:px-8 lg:pb-10">
+            <main className="mx-auto w-full max-w-[1600px] px-3 pb-6 pt-3 sm:px-4 lg:pb-10 lg:pt-4">
               <VideoGrid
                 videos={videos}
                 onFavoriteToggled={handleFavoriteToggled}
@@ -326,19 +327,6 @@ export default function App() {
           </>
         )}
       </div>
-
-      <MobileNav
-        active={page === "settings" ? "settings" : filter.favorites_only ? "favorites" : "videos"}
-        onVideos={() => {
-          setPage("main");
-          void handleFilterChange({ ...filter, search: undefined, favorites_only: undefined, genres: undefined, levels: undefined });
-        }}
-        onFavorites={() => {
-          setPage("main");
-          void handleFilterChange({ ...filter, search: undefined, favorites_only: true, genres: undefined, levels: undefined });
-        }}
-        onSettings={() => setPage("settings")}
-      />
 
       {toastMessage && (
         <Toast
