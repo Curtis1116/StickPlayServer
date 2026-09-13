@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="StickPlay">
+  <defs>
+    <linearGradient id="background" x1="96" y1="72" x2="928" y2="952" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#06143D"/>
+      <stop offset="0.5" stop-color="#0B318D"/>
+      <stop offset="1" stop-color="#1769F4"/>
+    </linearGradient>
+    <radialGradient id="highlight" cx="0" cy="0" r="1" gradientTransform="translate(258 166) rotate(45) scale(660)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF" stop-opacity="0.18"/>
+      <stop offset="0.72" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#background)"/>
+  <rect width="1024" height="1024" fill="url(#highlight)"/>
+  <g transform="translate(102.4 102.4) scale(.8)">
+    <path d="M416 356c-38-46-120-57-178-18-60 40-44 108 35 130l73 20c84 23 99 101 45 151-58 53-163 43-211-14" fill="none" stroke="#fff" stroke-width="76" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="500" y="310" width="72" height="404" rx="10" fill="#fff"/>
+    <path d="M626 321c-18-12-42 1-42 23v336c0 22 24 35 42 23l247-168c17-11 17-35 0-46z" fill="#fff"/>
+  </g>
+</svg>
