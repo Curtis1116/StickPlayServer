@@ -102,7 +102,7 @@ class SecurityIntegration(unittest.TestCase):
             self.assertEqual(self.request('/switch_database',{'dbName':name})[0],200)
             folder=root/'nested'/'film'; folder.mkdir(parents=True)
             (folder/'movie.mp4').write_bytes(b'0123456789abcdef')
-            (folder/'movie.nfo').write_text('<movie><num>SAME-1</num><title>Original</title><actor><name>One</name></actor><actor><name>Two</name></actor><releasedate>2020-01-01</releasedate><genre>無碼</genre><fileinfo><title>Nested title</title></fileinfo></movie>')
+            (folder/'movie.nfo').write_text('<movie><num>SAME-1</num><title>Original</title><originaltitle>Original kept</originaltitle><studio>Studio kept</studio><actor><name>One</name></actor><actor><name>Two</name></actor><releasedate>2020-01-01</releasedate><genre>無碼</genre><fileinfo><title>Nested title</title></fileinfo></movie>')
             (folder/'image.png').write_bytes(png())
             with database(self.config/f'{name}.db') as db:
                 db.execute('INSERT INTO videos(id,title,video_path,folder_path,nfo_path) VALUES(?,?,?,?,?)',
@@ -216,11 +216,14 @@ class SecurityIntegration(unittest.TestCase):
         self.assertEqual(self.request('/query_videos',{'filter':{}},headers={'X-Library-Id':'b'})[1][0]['title'],'b')
         self.assertEqual(self.request('/toggle_favorite',{'videoId':'SAME-1'})[0],200)
         self.assertFalse(self.request('/query_videos',{'filter':{}},headers={'X-Library-Id':'b'})[1][0]['is_favorite'])
-        data={'originalId':'SAME-1','videoId':'NEW-1','title':'A & B <Title>','level':'C','rating':8.5,'criticrating':85,'actors':['One & More','Two <Actor>'],'releaseDate':'2026-01-01','dateAdded':'2026-09-01','isFavorite':True,'isUncensored':False,'videoPath':'/etc/passwd','folderPath':'/etc','posterPath':None,'nfoPath':'/etc/evil.nfo'}
+        data={'originalId':'SAME-1','videoId':'NEW-1','title':'A & B <Title>','level':'C','rating':8.5,'criticrating':85,'actors':['One & More','Two <Actor>'],'genres':['劇情','精選','無碼'],'year':'2026','releaseDate':'2026-01-01','dateAdded':'2026-09-01','isFavorite':True,'isUncensored':False,'videoPath':'/etc/passwd','folderPath':'/etc','posterPath':None,'nfoPath':'/etc/evil.nfo'}
         self.assertEqual(self.request('/update_video_info',data)[0],200)
         self.assertEqual(self.request('/rescan_single_video',{'folderPath':str(self.folder)})[0],200)
         v=self.request('/query_videos',{'filter':{}})[1][0]
-        self.assertEqual(v['id'],'NEW-1'); self.assertEqual(v['level'],'C'); self.assertEqual(v['title'],data['title']); self.assertCountEqual(v['actors'],data['actors']); self.assertNotIn('無碼',v['genres']); self.assertTrue(v['is_favorite'])
+        self.assertEqual(v['id'],'NEW-1'); self.assertEqual(v['level'],'C'); self.assertEqual(v['title'],data['title']); self.assertCountEqual(v['actors'],data['actors']); self.assertEqual(v['year'],'2026'); self.assertCountEqual(v['genres'],['劇情','精選']); self.assertNotIn('無碼',v['genres']); self.assertTrue(v['is_favorite'])
+        xml=(self.folder/'movie.nfo').read_text()
+        for text in ['<year>2026</year>','<genre>劇情</genre>','<genre>精選</genre>','<originaltitle>Original kept</originaltitle>','<studio>Studio kept</studio>']:
+            self.assertIn(text,xml)
         with database(self.config/'a.db') as db:
             db.execute("INSERT INTO videos(id,title,video_path,folder_path) VALUES('COLLISION','Other','other','other')")
         before=(self.folder/'movie.nfo').read_bytes()

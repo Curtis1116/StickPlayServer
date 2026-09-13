@@ -222,7 +222,7 @@ pub async fn get_fanart_path(
                     .and_then(|e| e.to_str())
                     .map(|s| s.to_lowercase())
                 {
-                    if ext == "jpg" || ext == "jpeg" || ext == "png" || ext == "webp" {
+                    if security::IMAGES.contains(&ext.as_str()) {
                         let file_stem = path
                             .file_stem()
                             .map(|s| s.to_string_lossy().to_string())
@@ -262,6 +262,10 @@ pub struct UpdateVideoInfoPayload {
     pub rating: f64,
     pub criticrating: i32,
     pub actors: Vec<String>,
+    #[serde(default)]
+    pub genres: Option<Vec<String>>,
+    #[serde(default)]
+    pub year: Option<String>,
     pub release_date: String,
     pub date_added: String,
     pub is_favorite: bool,
@@ -281,6 +285,10 @@ pub async fn update_video_info(
     if payload.video_id.trim().is_empty()
         || payload.video_id.len() > 128
         || payload.actors.len() > 100
+        || payload
+            .genres
+            .as_ref()
+            .is_some_and(|genres| genres.len() > 100)
         || !(0..=100).contains(&payload.criticrating)
     {
         return Err((StatusCode::BAD_REQUEST, "影片資訊格式無效".into()));
@@ -301,8 +309,17 @@ pub async fn update_video_info(
         }
     }
     let level = payload.level.trim_end_matches(['X', 'x']);
-    tx.execute("UPDATE videos SET id=?1,title=?2,level=?3,rating=?4,criticrating=?5,release_date=?6,date_added=?7,is_favorite=?8,nfo_path=?9,nfos_path=NULL WHERE id=?10",
-        rusqlite::params![payload.video_id,payload.title,level,payload.criticrating as f64 / 10.0,payload.criticrating,payload.release_date,payload.date_added,payload.is_favorite,target.to_string_lossy(),original.id]).map_err(map_err)?;
+    let year = payload.year.as_deref().unwrap_or(&original.year).trim();
+    let source_genres = payload.genres.as_ref().unwrap_or(&original.genres);
+    let mut genres = Vec::new();
+    for genre in source_genres {
+        let genre = genre.trim();
+        if !genre.is_empty() && genre != "無碼" && !genres.iter().any(|item| item == genre) {
+            genres.push(genre.to_string());
+        }
+    }
+    tx.execute("UPDATE videos SET id=?1,title=?2,level=?3,rating=?4,criticrating=?5,year=?6,release_date=?7,date_added=?8,is_favorite=?9,nfo_path=?10,nfos_path=NULL WHERE id=?11",
+        rusqlite::params![payload.video_id,payload.title,level,payload.criticrating as f64 / 10.0,payload.criticrating,year,payload.release_date,payload.date_added,payload.is_favorite,target.to_string_lossy(),original.id]).map_err(map_err)?;
     tx.execute("DELETE FROM video_actors WHERE video_id=?1", [&original.id])
         .map_err(map_err)?;
     tx.execute("DELETE FROM video_genres WHERE video_id=?1", [&original.id])
@@ -314,9 +331,16 @@ pub async fn update_video_info(
         )
         .map_err(map_err)?;
     }
+    for genre in &genres {
+        tx.execute(
+            "INSERT OR IGNORE INTO video_genres VALUES(?1,?2)",
+            rusqlite::params![payload.video_id, genre],
+        )
+        .map_err(map_err)?;
+    }
     if payload.is_uncensored {
         tx.execute(
-            "INSERT INTO video_genres VALUES(?1,'無碼')",
+            "INSERT OR IGNORE INTO video_genres VALUES(?1,'無碼')",
             [&payload.video_id],
         )
         .map_err(map_err)?;
@@ -332,6 +356,8 @@ pub async fn update_video_info(
         payload.is_uncensored,
         &payload.title,
         level,
+        year,
+        &genres,
     )
     .map_err(map_err)?;
     tx.commit().map_err(map_err)?;
@@ -397,7 +423,7 @@ pub async fn get_folder_images(
                     .and_then(|e| e.to_str())
                     .map(|s| s.to_lowercase())
                 {
-                    if ext == "jpg" || ext == "jpeg" || ext == "png" || ext == "webp" {
+                    if security::IMAGES.contains(&ext.as_str()) {
                         images.push(path.to_string_lossy().to_string());
                     }
                 }

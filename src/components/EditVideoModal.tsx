@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useDialogFocus } from "../useDialogFocus";
 import { createPortal } from "react-dom";
-import { X, Save, Scissors, Star, StarOff, Trash2, Plus, Minus } from "lucide-react";
+import { X, Save, Star, StarOff, Trash2, Plus, Minus } from "lucide-react";
 import { VideoEntry } from "../types";
 import { updateVideoInfo } from "../api";
 
@@ -10,8 +10,6 @@ interface EditVideoModalProps {
     onClose: () => void;
     onSaved: (updatedVideo: VideoEntry) => void;
     onToast: (msg: string) => void;
-    posterUrl?: string | null;
-    onCrop?: () => void;
     hidden?: boolean;
 }
 
@@ -20,8 +18,6 @@ export default function EditVideoModal({
     onClose,
     onSaved,
     onToast,
-    posterUrl,
-    onCrop,
     hidden = false,
 }: EditVideoModalProps) {
     const dialogRef = useDialogFocus(onClose);
@@ -31,6 +27,8 @@ export default function EditVideoModal({
     const [title, setTitle] = useState(video.title);
     const [level, setLevel] = useState(video.level);
     const [actorsStr, setActorsStr] = useState(video.actors.join(", "));
+    const [year, setYear] = useState(video.year);
+    const [genresStr, setGenresStr] = useState(video.genres.filter((genre) => genre !== "無碼").join(", "));
     const [releaseDate, setReleaseDate] = useState(video.release_date);
     const [dateAdded, setDateAdded] = useState(video.date_added);
     const [isFavorite, setIsFavorite] = useState(video.is_favorite);
@@ -55,6 +53,12 @@ export default function EditVideoModal({
                 .split(",")
                 .map((s: string) => s.trim())
                 .filter(Boolean);
+            const genresList = Array.from(new Set(
+                genresStr
+                    .split(",")
+                    .map((value) => value.trim())
+                    .filter((value) => value && value !== "無碼")
+            ));
 
             let newLevel = level;
             newLevel = newLevel.replace(/[xX]$/, '');
@@ -74,10 +78,12 @@ export default function EditVideoModal({
                 video.folder_path,
                 video.poster_path || null,
                 video.nfo_path,
-                criticRating
+                criticRating,
+                year,
+                genresList
             );
 
-            const newGenres = video.genres.filter(g => g !== "無碼");
+            const newGenres = [...genresList];
             if (isUncensored) newGenres.push("無碼");
 
             const updatedVideo: VideoEntry = {
@@ -86,6 +92,7 @@ export default function EditVideoModal({
                 title,
                 rating,
                 criticrating: criticRating,
+                year,
                 actors: actorsList,
                 release_date: releaseDate,
                 date_added: dateAdded,
@@ -106,8 +113,8 @@ export default function EditVideoModal({
     };
 
     return createPortal(
-        <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="編輯影片資訊" style={hidden ? { display: "none" } : undefined} className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
-            <div className="glass-panel w-full max-w-2xl bg-[#15161b] border border-zinc-700/50 rounded-2xl shadow-2xl overflow-hidden flex flex-col h-[90dvh]">
+        <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="編輯影片資訊" style={hidden ? { display: "none" } : undefined} className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/60 backdrop-blur-sm lg:p-4" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
+            <div className="glass-panel flex h-[100dvh] w-full flex-col overflow-hidden border border-zinc-700/50 bg-[#15161b] shadow-2xl lg:h-[90dvh] lg:max-w-2xl lg:rounded-2xl">
                 <div className="flex items-center justify-between p-4 border-b border-white/10 shrink-0">
                     <h2 className="text-lg font-bold text-white">編輯影片資訊 <span className="text-xs font-normal text-indigo-300">編輯中</span></h2>
                     <button aria-label="關閉編輯" onClick={onClose} className="p-1 rounded-lg text-zinc-400 hover:text-white hover:bg-white/10 transition-colors">
@@ -115,14 +122,7 @@ export default function EditVideoModal({
                     </button>
                 </div>
 
-                <div className="p-4 sm:p-6 overflow-y-auto flex-grow custom-scrollbar">
-                    <div className="mb-4 flex items-start gap-4">
-                        <div className="w-28 shrink-0">
-                            {posterUrl && <img src={posterUrl} alt="影片封面" className="aspect-[2/3] w-full rounded-lg object-cover" />}
-                            {onCrop && <button type="button" onClick={onCrop} className="flex min-h-11 items-center gap-2 text-sm text-indigo-300"><Scissors size={17} />裁切封面</button>}
-                        </div>
-                        <div className="min-w-0"><h3 className="break-words text-lg font-bold">{video.title || video.id}</h3><p className="mt-2 break-all text-sm text-zinc-400">{video.id}</p></div>
-                    </div>
+                <div className="custom-scrollbar min-h-0 flex-grow overflow-y-auto p-4 sm:p-6">
                     <div className="flex flex-col md:flex-row gap-4 sm:gap-6 mb-6">
                         {/* Simplified Critic Rating Section */}
                         <div className="flex-1">
@@ -217,10 +217,23 @@ export default function EditVideoModal({
                                 <input type="text" aria-label="加入日期" value={dateAdded} onChange={(e) => setDateAdded(e.target.value)} className="min-w-0 flex-1 bg-zinc-800/50 border border-white/10 rounded-xl px-3 sm:px-4 py-2 sm:py-2.5 text-xs sm:text-sm text-white focus:outline-none" />
                             </div>
                         </div>
+
+                        <div className="flex flex-row items-center gap-2 sm:w-1/2 sm:gap-3 sm:pr-2">
+                            <label className="w-16 sm:w-20 shrink-0 text-right text-[9px] sm:text-[10px] font-bold text-zinc-500 uppercase">年份</label>
+                            <input type="text" inputMode="numeric" aria-label="年份" value={year} onChange={(e) => setYear(e.target.value)} className="min-w-0 flex-1 bg-zinc-800/50 border border-white/10 rounded-xl px-3 sm:px-4 py-2 sm:py-2.5 text-xs sm:text-sm text-white focus:outline-none focus:border-indigo-500" />
+                        </div>
+
+                        <div className="flex flex-row items-start gap-2 sm:gap-3">
+                            <label className="w-16 sm:w-20 shrink-0 pt-2.5 text-right text-[9px] sm:text-[10px] font-bold text-zinc-500 uppercase">類型</label>
+                            <div className="min-w-0 flex-1">
+                                <input type="text" aria-label="類型" value={genresStr} onChange={(e) => setGenresStr(e.target.value)} placeholder="例如：劇情, 精選" className="w-full bg-zinc-800/50 border border-white/10 rounded-xl px-3 sm:px-4 py-2 sm:py-2.5 text-xs sm:text-sm text-white focus:outline-none focus:border-indigo-500" />
+                                <p className="mt-1.5 px-1 text-[10px] text-zinc-600">以逗號分隔</p>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
-                <div className="p-4 border-t border-white/10 shrink-0 flex justify-end gap-3 bg-zinc-950/50">
+                <div className="flex shrink-0 justify-end gap-3 border-t border-white/10 bg-zinc-950/50 px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-4">
                     <button onClick={onClose} className="px-6 py-2 rounded-xl text-sm font-bold text-zinc-400 hover:text-white transition-colors">取消</button>
                     <button onClick={handleSave} disabled={saving} className="px-8 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-bold shadow-lg shadow-indigo-600/20 transition-all disabled:opacity-50 flex items-center gap-2">
                         <Save size={18} />

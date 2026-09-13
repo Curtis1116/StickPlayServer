@@ -81,6 +81,7 @@ impl Database {
                 title TEXT NOT NULL DEFAULT '',
                 level TEXT NOT NULL DEFAULT '',
                 rating REAL NOT NULL DEFAULT 0.0,
+                year TEXT NOT NULL DEFAULT '',
                 release_date TEXT NOT NULL DEFAULT '',
                 date_added TEXT NOT NULL DEFAULT '',
                 video_path TEXT NOT NULL,
@@ -115,8 +116,8 @@ impl Database {
         )
         .ok();
 
-        // Migration: 清除除了「無碼」以外的舊分類標籤
-        conn.execute("DELETE FROM video_genres WHERE genre != '無碼'", params![])
+        // Migration: 新增 NFO year 欄位
+        conn.execute_batch("ALTER TABLE videos ADD COLUMN year TEXT NOT NULL DEFAULT ''; ")
             .ok();
 
         Ok(conn)
@@ -194,6 +195,7 @@ impl Database {
         title: &str,
         level: &str,
         rating: Option<f64>,
+        year: &str,
         release_date: &str,
         date_added: &str,
         video_path: &str,
@@ -224,12 +226,13 @@ impl Database {
         )?;
 
         conn.execute(
-            "INSERT INTO videos (id, title, level, rating, release_date, date_added, video_path, folder_path, poster_path, nfo_path, nfos_path, criticrating)
-             VALUES (?1, ?2, ?3, COALESCE(?4, 0.0), ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+            "INSERT INTO videos (id, title, level, rating, year, release_date, date_added, video_path, folder_path, poster_path, nfo_path, nfos_path, criticrating)
+             VALUES (?1, ?2, ?3, COALESCE(?4, 0.0), ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
              ON CONFLICT(id) DO UPDATE SET
                 title = excluded.title,
                 level = excluded.level,
                 rating = COALESCE(excluded.rating, videos.rating),
+                year = excluded.year,
                 release_date = excluded.release_date,
                 date_added = excluded.date_added,
                 video_path = excluded.video_path,
@@ -238,7 +241,7 @@ impl Database {
                 nfo_path = excluded.nfo_path,
                 nfos_path = excluded.nfos_path,
                 criticrating = excluded.criticrating",
-            params![id, title, level, rating, release_date, date_added, video_path, folder_path, poster_path, nfo_path, nfos_path, criticrating],
+            params![id, title, level, rating, year, release_date, date_added, video_path, folder_path, poster_path, nfo_path, nfos_path, criticrating],
         )?;
 
         // 清除舊的 actors / genres 然後重新插入
@@ -345,7 +348,7 @@ impl Database {
         };
 
         let query = format!(
-            "SELECT v.id, v.title, v.level, v.rating, v.release_date, v.date_added,
+            "SELECT v.id, v.title, v.level, v.rating, v.year, v.release_date, v.date_added,
                     v.video_path, v.folder_path, v.poster_path, v.nfo_path, v.nfos_path, v.is_favorite, v.criticrating
              FROM videos v
              {} {}",
@@ -366,11 +369,12 @@ impl Database {
                 row.get::<_, String>(5)?,
                 row.get::<_, String>(6)?,
                 row.get::<_, String>(7)?,
-                row.get::<_, Option<String>>(8)?,
+                row.get::<_, String>(8)?,
                 row.get::<_, Option<String>>(9)?,
                 row.get::<_, Option<String>>(10)?,
-                row.get::<_, bool>(11)?,
-                row.get::<_, i32>(12)?,
+                row.get::<_, Option<String>>(11)?,
+                row.get::<_, bool>(12)?,
+                row.get::<_, i32>(13)?,
             ))
         })?;
 
@@ -381,6 +385,7 @@ impl Database {
                 title,
                 level,
                 rating,
+                year,
                 release_date,
                 date_added,
                 video_path,
@@ -426,6 +431,7 @@ impl Database {
                 nfos_path,
                 is_favorite,
                 criticrating,
+                year,
             });
         }
 

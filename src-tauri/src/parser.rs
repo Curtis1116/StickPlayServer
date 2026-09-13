@@ -70,11 +70,13 @@ pub fn parse_nfo(nfo_path: &Path) -> Result<NfoData, String> {
                             data.actors.push(text);
                         }
                     }
-                    "genre" | "tag" => {
+                    "genre" => {
                         if !text.is_empty() {
                             data.genres.push(text);
                         }
                     }
+                    "tag" if text == "無碼" => data.is_uncensored = true,
+                    "year" => data.year = text,
                     "rating" | "userrating" => {
                         if let Ok(r) = text.parse::<f64>() {
                             data.rating = Some(r);
@@ -326,6 +328,8 @@ pub fn update_nfo_full(
     is_uncensored: bool,
     title: &str,
     level: &str,
+    year: &str,
+    genres: &[String],
 ) -> Result<(), String> {
     let mut tags = Vec::new();
 
@@ -334,13 +338,26 @@ pub fn update_nfo_full(
     let release_date = quick_xml::escape::escape(release_date);
     let date_added = quick_xml::escape::escape(date_added);
     let level = quick_xml::escape::escape(level);
+    let year = quick_xml::escape::escape(year);
     tags.push(("level".into(), format!("<level>{level}</level>")));
+    tags.push(("year".into(), format!("<year>{year}</year>")));
     tags.push((
         "uncensored".into(),
         format!("<uncensored>{is_uncensored}</uncensored>"),
     ));
     // An empty replacement removes all existing actor nodes too.
     tags.push(("actor".into(), String::new()));
+    // The marker removes all existing genre nodes before the edited values are appended.
+    tags.push(("genre".into(), String::new()));
+    for genre in genres {
+        let genre = genre.trim();
+        if !genre.is_empty() && genre != "無碼" {
+            tags.push((
+                "genre".into(),
+                format!("<genre>{}</genre>", quick_xml::escape::escape(genre)),
+            ));
+        }
+    }
 
     let synchronized_critic_rating = critic_rating_opt.unwrap_or_else(|| {
         if rating > 0.0 {
@@ -439,17 +456,35 @@ mod tests {
             false,
             "A & title",
             "",
+            "2026",
+            &["劇情".into(), "精選".into()],
         )
         .unwrap();
         let data = parse_nfo(&path).unwrap();
         assert_eq!(data.actors, vec!["A & B", "C <D>"]);
         assert_eq!(data.title, "A & title");
         assert_eq!(data.level, Some("".into()));
+        assert_eq!(data.year, "2026");
+        assert_eq!(data.genres, vec!["劇情", "精選"]);
         assert_eq!(data.uncensored_override, Some(false));
         assert!(std::fs::read_to_string(&path)
             .unwrap()
             .contains("<fileinfo><title>Nested</title></fileinfo>"));
-        update_nfo_full(&path, "ID-1", 8.0, Some(80), &[], "", "", false, "", "").unwrap();
+        update_nfo_full(
+            &path,
+            "ID-1",
+            8.0,
+            Some(80),
+            &[],
+            "",
+            "",
+            false,
+            "",
+            "",
+            "",
+            &[],
+        )
+        .unwrap();
         assert!(parse_nfo(&path).unwrap().actors.is_empty());
     }
     #[test]

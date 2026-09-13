@@ -15,6 +15,7 @@ export interface VideoEntry {
     nfos_path: string | null;
     is_favorite: boolean;
     criticrating: number;
+    year: string;
 }
 
 /// 篩選參數

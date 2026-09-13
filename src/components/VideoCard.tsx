@@ -220,7 +220,7 @@ const VideoCard = memo(({
             </div>
 
             {showInfo && !showRating && !showCropModal && <VideoInfoModal video={video} posterUrl={posterUrl} onClose={() => setShowInfo(false)} onPlay={() => void handlePlay()} onEdit={() => setShowRating(true)} onCrop={() => setShowCropModal(true)} />}
-            {showRating && <EditVideoModal video={video} posterUrl={posterUrl} hidden={showCropModal} onCrop={() => setShowCropModal(true)} onClose={() => setShowRating(false)} onSaved={(updated) => { onVideoUpdated(updated); setShowRating(false); }} onToast={onToast} />}
+            {showRating && <EditVideoModal video={video} hidden={showCropModal} onClose={() => setShowRating(false)} onSaved={(updated) => { onVideoUpdated(updated); setShowRating(false); }} onToast={onToast} />}
             {showCropModal && <ManualCropModal folderPath={video.folder_path} videoId={video.id} onClose={() => setShowCropModal(false)} onSaved={(posterPath) => { onVideoUpdated({ ...video, poster_path: posterPath }); setUpdateTrigger((previous) => previous + 1); }} onToast={onToast} />}
             {showMoveModal && <MoveFolderModal video={video} onClose={() => setShowMoveModal(false)} onSaved={onVideoUpdated} onRemoved={(id) => onVideoRemoved?.(id)} onToast={onToast} />}
         </div>

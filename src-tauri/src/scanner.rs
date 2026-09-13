@@ -153,8 +153,14 @@ pub fn scan_single_folder(
     }
 
     let mut genres = Vec::new();
+    for genre in &nfo_data.genres {
+        let genre = genre.trim();
+        if !genre.is_empty() && !genres.iter().any(|item| item == genre) {
+            genres.push(genre.to_string());
+        }
+    }
     let has_nfo_uncensored = is_uncensored;
-    if has_nfo_uncensored {
+    if has_nfo_uncensored && !genres.iter().any(|genre| genre == "無碼") {
         genres.push("無碼".to_string());
     }
 
@@ -179,6 +185,7 @@ pub fn scan_single_folder(
         &title,
         &level,
         nfo_data.rating,
+        &nfo_data.year,
         &nfo_data.release_date,
         &nfo_data.date_added,
         &video_path,

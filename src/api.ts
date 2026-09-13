@@ -73,7 +73,9 @@ export async function updateVideoInfo(
     folderPath: string,
     posterPath: string | null,
     nfoPath: string | null,
-    criticrating: number
+    criticrating: number,
+    year: string,
+    genres: string[]
 ): Promise<string> {
     return post<string>("update_video_info", {
         originalId,
@@ -83,6 +85,8 @@ export async function updateVideoInfo(
         rating,
         criticrating,
         actors,
+        genres,
+        year,
         releaseDate,
         dateAdded,
         isFavorite,
