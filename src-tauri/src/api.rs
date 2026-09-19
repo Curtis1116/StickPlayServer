@@ -13,7 +13,7 @@ use tower_http::services::ServeFile;
 
 use crate::models::{VideoEntry, VideoFilter};
 use crate::parser::{update_nfo, update_nfo_full};
-use crate::scanner::scan_single_folder;
+use crate::scanner::{save_thumbnail, scan_single_folder, thumbnail_safe_id};
 use crate::{security, AppState, ServerState};
 fn checked(state: &AppState, path: &str) -> Result<PathBuf, ApiError> {
     let roots = state
@@ -73,7 +73,7 @@ pub struct ScanPathsPayload {
 pub async fn scan_library(
     Extension(state): Extension<Arc<AppState>>,
     Json(payload): Json<ScanPathsPayload>,
-) -> ApiResult<usize> {
+) -> ApiResult<crate::scanner::ScanReport> {
     for path in &payload.paths {
         checked(&state, path)?;
     }
@@ -518,12 +518,9 @@ pub async fn crop_and_save_poster(
         if !video_id_final.is_empty() {
             let thumbnail_dir = state_cloned.db.thumbnail_dir();
             let _ = std::fs::create_dir_all(&thumbnail_dir);
-            let safe_id = video_id_final
-                .replace("/", "_")
-                .replace("\\", "_")
-                .replace(":", "_");
-            let thumb_path = thumbnail_dir.join(format!("{}.jpg", safe_id));
-            let _ = cropped.thumbnail(300, 450).save(&thumb_path);
+            let safe_id = thumbnail_safe_id(&video_id_final);
+            let thumb_path = thumbnail_dir.join(format!("{}.webp", safe_id));
+            save_thumbnail(&cropped, &thumb_path)?;
         }
 
         if let Some(nfo_p) = nfo_path_opt {
@@ -678,7 +675,7 @@ pub struct ImageQuery {
 fn with_no_cache(mut res: axum::response::Response) -> axum::response::Response {
     res.headers_mut().insert(
         axum::http::header::CACHE_CONTROL,
-        axum::http::HeaderValue::from_static("no-cache"),
+        axum::http::HeaderValue::from_static("private, no-cache"),
     );
     res
 }
@@ -694,7 +691,7 @@ pub async fn serve_image_file(
 
     if query.thumb.unwrap_or(false) {
         if let Some(ref id) = query.id {
-            let safe_id = id.replace("/", "_").replace("\\", "_").replace(":", "_");
+            let safe_id = thumbnail_safe_id(id);
 
             if let Some(thumb_path) = state.db.resolve_thumbnail(&safe_id) {
                 let req_for_thumb = Request::from_parts(parts.clone(), axum::body::Body::empty());
@@ -706,7 +703,6 @@ pub async fn serve_image_file(
         }
     }
 
-    let path = checked(&state, &query.path)?;
     if !path.exists() {
         return Err((StatusCode::NOT_FOUND, "File not found".to_string()));
     }

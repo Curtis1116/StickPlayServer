@@ -38,8 +38,17 @@ async function post<T>(endpoint: string, payload?: any): Promise<T> {
 }
 
 /// 掃描媒體庫
-export async function scanLibrary(paths: string[]): Promise<number> {
-    return post<number>("scan_library", { paths });
+export interface ScanReport {
+    indexed: number;
+    webpThumbnails: number;
+    missingThumbnails: number;
+    legacyJpgConverted: number;
+    legacyJpgFailed: number;
+    scanErrors: number;
+}
+
+export async function scanLibrary(paths: string[]): Promise<ScanReport> {
+    return post<ScanReport>("scan_library", { paths });
 }
 
 /// 重新掃描單一影片（更新索引 + 重新生成海報）

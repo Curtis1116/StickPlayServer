@@ -6,6 +6,57 @@ use regex::Regex;
 
 use crate::models::{FolderMeta, NfoData};
 
+/// Create basic NFO metadata parsed from the folder name.
+pub fn create_nfo_from_folder(
+    nfo_path: &Path,
+    folder_meta: &FolderMeta,
+    date_added: &str,
+) -> Result<(), String> {
+    let level = if folder_meta.is_uncensored {
+        format!("{}X", folder_meta.level)
+    } else {
+        folder_meta.level.clone()
+    };
+
+    let mut content =
+        String::from("<?xml version=\"1.0\" encoding=\"utf-8\" standalone=\"yes\"?>\n<movie>\n");
+    content.push_str(&format!(
+        "  <dateadded>{}</dateadded>\n  <num>{}</num>\n",
+        quick_xml::escape::escape(date_added),
+        quick_xml::escape::escape(&folder_meta.id),
+    ));
+    if !level.is_empty() {
+        content.push_str(&format!(
+            "  <level>{}</level>\n",
+            quick_xml::escape::escape(&level)
+        ));
+    }
+    if let Some(actor) = folder_meta
+        .actor
+        .as_deref()
+        .filter(|actor| !actor.trim().is_empty())
+    {
+        content.push_str(&format!(
+            "  <actor>\n    <name>{}</name>\n    <type>Actor</type>\n  </actor>\n",
+            quick_xml::escape::escape(actor.trim()),
+        ));
+    }
+    if folder_meta.is_uncensored {
+        content.push_str("  <genre>無碼</genre>\n  <tag>無碼</tag>\n");
+    }
+    content.push_str("</movie>\n");
+
+    // Do not truncate existing files, including files from concurrent scans.
+    use std::io::Write;
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(nfo_path)
+        .map_err(|e| format!("Create NFO failed: {}", e))?;
+    file.write_all(content.as_bytes())
+        .map_err(|e| format!("Write NFO failed: {}", e))
+}
+
 /// 從 .nfo XML 檔案解析中繼資料
 pub fn parse_nfo(nfo_path: &Path) -> Result<NfoData, String> {
     let mut content =
@@ -435,6 +486,41 @@ pub fn update_poster_nfo(path: &Path) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn creates_and_parses_nfo_from_folder_metadata() {
+        let temp = tempfile::tempdir().unwrap();
+        let nfo_path = temp.path().join("ABC-123.nfo");
+        let metadata = FolderMeta {
+            id: "ABC-123".to_string(),
+            actor: Some("演員 & One".to_string()),
+            level: "A".to_string(),
+            is_uncensored: false,
+        };
+
+        create_nfo_from_folder(&nfo_path, &metadata, "2026-08-29").unwrap();
+        let parsed = parse_nfo(&nfo_path).unwrap();
+
+        assert_eq!(parsed.num.as_deref(), Some("ABC-123"));
+        assert_eq!(parsed.actors, vec!["演員 & One"]);
+        assert_eq!(parsed.level.as_deref(), Some("A"));
+        assert_eq!(parsed.date_added, "2026-08-29");
+    }
+    #[test]
+    fn generated_nfo_preserves_uncensored_metadata_and_existing_files() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("ABC-123.nfo");
+        let metadata = parse_folder_name("ABC-123 (NULL_SSX)").unwrap();
+        create_nfo_from_folder(&path, &metadata, "2026-09-13").unwrap();
+        let data = parse_nfo(&path).unwrap();
+        assert_eq!(data.level.as_deref(), Some("SS"));
+        assert!(data.is_uncensored);
+        assert!(data.actors.is_empty());
+        assert!(!data.genres.is_empty());
+        let original = std::fs::read(&path).unwrap();
+        assert!(create_nfo_from_folder(&path, &metadata, "2030-01-01").is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+    }
+
     #[test]
     fn partial_and_full_updates_preserve_unrelated_xml() {
         let temp = tempfile::tempdir().unwrap();

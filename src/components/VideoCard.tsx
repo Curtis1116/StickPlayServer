@@ -21,6 +21,8 @@ interface VideoCardProps {
     onVideoRemoved?: (id: string) => void;
     onToast: (msg: string) => void;
     onModalStateChange: (open: boolean) => void;
+    onSearch: (value: string) => void;
+    priority?: boolean;
 }
 
 const VideoCard = memo(({
@@ -30,6 +32,8 @@ const VideoCard = memo(({
     onVideoRemoved,
     onToast,
     onModalStateChange,
+    onSearch,
+    priority = false,
 }: VideoCardProps) => {
     const [showInfo, setShowInfo] = useState(false);
     const [showRating, setShowRating] = useState(false);
@@ -85,19 +89,29 @@ const VideoCard = memo(({
             return;
         }
         let cancelled = false;
-        const observer = new IntersectionObserver((entries) => {
-            if (!entries[0].isIntersecting) return;
+        const loadPoster = () => {
             readImage(video.poster_path!, video.id, true, updateTrigger || undefined)
                 .then((dataUrl) => { if (!cancelled) setPosterUrl(dataUrl); })
                 .catch(() => { if (!cancelled) setPosterUrl(null); });
+        };
+
+        // 首屏海報立即開始下載；其餘海報則在接近可視區前預載。
+        if (priority) {
+            loadPoster();
+            return () => { cancelled = true; };
+        }
+
+        const observer = new IntersectionObserver((entries) => {
+            if (!entries[0].isIntersecting) return;
+            loadPoster();
             if (cardRef.current) observer.unobserve(cardRef.current);
-        }, { rootMargin: "200px" });
+        }, { rootMargin: "75% 0px" });
         if (cardRef.current) observer.observe(cardRef.current);
         return () => {
             cancelled = true;
             observer.disconnect();
         };
-    }, [video.poster_path, video.id, updateTrigger]);
+    }, [video.poster_path, video.id, updateTrigger, priority]);
 
     const handlePlay = async () => {
         try {
@@ -154,6 +168,13 @@ const VideoCard = memo(({
     const actorText = video.actors.join(", ") || video.id;
     const score = video.criticrating >= 0 ? video.criticrating : "—";
     const year = video.release_date?.slice(0, 4);
+    const idPrefix = video.id.match(/^(.+)-\d+$/)?.[1] || video.id;
+    const idSuffix = video.id.slice(idPrefix.length);
+    const handleSearch = (event: React.MouseEvent<HTMLButtonElement>, value: string) => {
+        event.stopPropagation();
+        cancelPendingTap();
+        onSearch(value);
+    };
 
     return (
         <div ref={cardRef} className="movie-card group relative min-w-0" onClick={handleCardClick} onDoubleClick={(event) => event.preventDefault()} onContextMenu={(event) => {
@@ -176,7 +197,14 @@ const VideoCard = memo(({
                 className="relative aspect-[2/3] touch-manipulation cursor-pointer overflow-hidden rounded-lg border border-zinc-800 bg-zinc-900 shadow-lg outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 lg:rounded-xl"
             >
                 {posterUrl ? (
-                    <img src={posterUrl} alt="" className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" loading="lazy" />
+                    <img
+                        src={posterUrl}
+                        alt=""
+                        className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
+                        loading={priority ? "eager" : "lazy"}
+                        fetchPriority={priority ? "high" : "auto"}
+                        decoding="async"
+                    />
                 ) : (
                     <div className="poster-placeholder flex h-full w-full flex-col items-center justify-center gap-2">
                         <span className="text-2xl text-zinc-700 lg:text-3xl">🎬</span>
@@ -194,13 +222,37 @@ const VideoCard = memo(({
 
             <div className="mt-1.5 min-w-0 px-0.5 lg:mt-3 lg:px-0">
                 <div className="flex min-w-0 items-center gap-1">
-                    <p className="min-w-0 flex-1 truncate text-[12px] font-bold text-zinc-100 sm:text-sm lg:text-sm">{actorText}</p>
+                    <p className="min-w-0 flex-1 truncate text-[12px] font-bold text-zinc-100 sm:text-sm lg:text-sm">
+                        {video.actors.length > 0 ? video.actors.map((actor, index) => (
+                            <span key={`${actor}-${index}`}>
+                                {index > 0 && ", "}
+                                <button
+                                    type="button"
+                                    onClick={(event) => handleSearch(event, actor)}
+                                    className="cursor-pointer rounded-sm text-left text-indigo-300 underline-offset-2 hover:text-indigo-200 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+                                    title={`以演員「${actor}」篩選`}
+                                >
+                                    {actor}
+                                </button>
+                            </span>
+                        )) : video.id}
+                    </p>
                     <span className="shrink-0 text-[11px] font-bold tabular-nums text-amber-400 sm:text-xs lg:text-xs">★ {score}</span>
                 </div>
 
                 <div className="relative mt-0.5 flex min-w-0 items-center gap-1 lg:mt-1" ref={menuRef}>
                     <p className="min-w-0 flex-1 truncate text-[11px] text-zinc-500 lg:text-sm lg:text-zinc-300">
-                        <span className="lg:hidden">{video.id}</span>
+                        <span className="lg:hidden">
+                            <button
+                                type="button"
+                                onClick={(event) => handleSearch(event, idPrefix)}
+                                className="cursor-pointer rounded-sm text-indigo-300 underline-offset-2 hover:text-indigo-200 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+                                title={`以番號前綴「${idPrefix}」篩選`}
+                            >
+                                {idPrefix}
+                            </button>
+                            {idSuffix}
+                        </span>
                         <span className="hidden lg:inline">{video.title || video.id}</span>
                     </p>
                     <button type="button" onClick={() => { cancelPendingTap(); setShowMenu((value) => !value); }} aria-label="更多操作" aria-expanded={showMenu} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-zinc-500 hover:bg-zinc-800 hover:text-white lg:hidden">
@@ -216,7 +268,18 @@ const VideoCard = memo(({
                     )}
                 </div>
 
-                <p className="hidden truncate text-xs text-zinc-500 lg:block">{[year, video.id].filter(Boolean).join(" · ")}</p>
+                <p className="hidden truncate text-xs text-zinc-500 lg:block">
+                    {year && <>{year} · </>}
+                    <button
+                        type="button"
+                        onClick={(event) => handleSearch(event, idPrefix)}
+                        className="cursor-pointer rounded-sm text-indigo-300 underline-offset-2 hover:text-indigo-200 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+                        title={`以番號前綴「${idPrefix}」篩選`}
+                    >
+                        {idPrefix}
+                    </button>
+                    {idSuffix}
+                </p>
             </div>
 
             {showInfo && !showRating && !showCropModal && <VideoInfoModal video={video} posterUrl={posterUrl} onClose={() => setShowInfo(false)} onPlay={() => void handlePlay()} onEdit={() => setShowRating(true)} onCrop={() => setShowCropModal(true)} />}

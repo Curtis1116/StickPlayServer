@@ -166,8 +166,14 @@ export default function App() {
         setPage("settings");
         return;
       }
-      const count = await scanLibrary(lib.paths);
-      showToast(`掃描完成，共索引 ${count} 部影片`);
+      const report = await scanLibrary(lib.paths);
+      const warnings = report.missingThumbnails + report.legacyJpgFailed + report.scanErrors;
+      showToast(
+        `掃描完成：索引 ${report.indexed} 部、WebP ${report.webpThumbnails} 張、舊 JPG 轉換 ${report.legacyJpgConverted} 張` +
+        (warnings > 0
+          ? `；仍缺縮圖 ${report.missingThumbnails}、轉換失敗 ${report.legacyJpgFailed}、掃描錯誤 ${report.scanErrors}`
+          : "")
+      );
       await loadMeta();
       await loadVideos();
     } catch (e) {
@@ -272,6 +278,11 @@ export default function App() {
     setToastMessage(msg);
   }, []);
 
+  const handleCardSearch = useCallback((search: string) => {
+    setFilter((current) => ({ ...current, search }));
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, []);
+
   return (
     <div className="flex min-h-[100dvh] bg-[#0d0e12]">
       <DesktopSidebar
@@ -322,6 +333,7 @@ export default function App() {
                 onVideoRemoved={handleVideoRemoved}
                 onToast={showToast}
                 onModalStateChange={setIsModalOpen}
+                onSearch={handleCardSearch}
               />
             </main>
           </>

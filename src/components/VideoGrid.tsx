@@ -11,6 +11,7 @@ interface VideoGridProps {
     onVideoRemoved: (id: string) => void;
     onToast: (msg: string) => void;
     onModalStateChange: (open: boolean) => void;
+    onSearch: (value: string) => void;
 }
 
 export default function VideoGrid({
@@ -20,6 +21,7 @@ export default function VideoGrid({
     onVideoRemoved,
     onToast,
     onModalStateChange,
+    onSearch,
 }: VideoGridProps) {
     const parentRef = useRef<HTMLDivElement>(null);
     // 初始化為視窗寬度，避免初次渲染出現 1-column 或空白的情況
@@ -138,6 +140,8 @@ export default function VideoGrid({
                                     onVideoRemoved={onVideoRemoved}
                                     onToast={onToast}
                                     onModalStateChange={onModalStateChange}
+                                    onSearch={onSearch}
+                                    priority={virtualRow.index < 2}
                                 />
                             ))}
                         </div>

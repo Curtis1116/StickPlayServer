@@ -188,11 +188,18 @@ export default function Header({ libraries, activeLibraryId, onLibraryChange, ge
         if (panel === "filter") onFilterChange({ ...filter, genres: draft.genres, levels: draft.levels, favorites_only: draft.favorites_only });
         setPanel(null);
     };
+    const clearSearch = () => onFilterChange({ ...filter, search: undefined });
+    const clearFilters = () => onFilterChange({
+        ...filter,
+        genres: undefined,
+        levels: undefined,
+        favorites_only: undefined,
+    });
     const iconClass = "relative flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-zinc-300 hover:bg-zinc-800 disabled:opacity-50";
-    const searchButton = <button type="button" onClick={() => open("search")} aria-label="搜尋影片" title="搜尋影片" className={`${iconClass} ${filter.search ? "bg-indigo-500/20 text-indigo-300" : ""} ${variant === "sidebar" ? "flex-1 border border-zinc-700" : ""}`}><Search size={19} /></button>;
+    const searchButton = <button type="button" onClick={() => open("search")} onContextMenu={(event) => { event.preventDefault(); clearSearch(); }} aria-label="搜尋影片；按滑鼠右鍵可清除搜尋" title="搜尋影片（右鍵清除）" className={`${iconClass} ${filter.search ? "bg-indigo-500/20 text-indigo-300" : ""} ${variant === "sidebar" ? "flex-1 border border-zinc-700" : ""}`}><Search size={19} /></button>;
     const refreshButton = <button type="button" onClick={onRefresh} disabled={isScanning} aria-label="重新掃描" title={isScanning ? "掃描中" : "重新掃描"} className={`${iconClass} ${variant === "sidebar" ? "flex-1 border border-zinc-700" : ""}`}><RefreshCw size={19} className={isScanning ? "animate-spin" : ""} /></button>;
     const sortButton = <button type="button" onClick={() => open("sort")} aria-label={`排序：${sortDescription}`} title={`排序：${sortDescription}`} className={variant === "sidebar" ? "flex min-h-11 w-full items-center gap-2 rounded-lg border border-zinc-700 px-3 text-sm text-zinc-300 hover:bg-zinc-800" : iconClass}><ArrowDownUp size={19} className="shrink-0" />{variant === "sidebar" && <><span className="min-w-0 flex-1 truncate">{sortLabel} {filter.sort_order === "ASC" ? "↑" : "↓"}</span><ChevronDown size={14} /></>}</button>;
-    const filterButton = <button type="button" onClick={() => open("filter")} aria-label={`篩選${activeCount ? `，已選 ${activeCount} 項` : ""}`} title="篩選" className={`${variant === "sidebar" ? "flex min-h-11 w-full items-center gap-2 rounded-lg border border-zinc-700 px-3 text-sm" : iconClass} ${activeCount ? "bg-indigo-500/20 text-indigo-300" : "text-zinc-300"}`}><SlidersHorizontal size={19} />{variant === "sidebar" && <span className="flex-1 text-left">篩選</span>}{activeCount > 0 && <span className={variant === "sidebar" ? "rounded-full bg-indigo-500 px-1.5 text-xs text-white" : "absolute right-0 top-0 rounded-full bg-indigo-500 px-1 text-[10px] text-white"}>{activeCount}</span>}</button>;
+    const filterButton = <button type="button" onClick={() => open("filter")} onContextMenu={(event) => { event.preventDefault(); clearFilters(); }} aria-label={`篩選${activeCount ? `，已選 ${activeCount} 項` : ""}；按滑鼠右鍵可清除篩選`} title="篩選（右鍵清除）" className={`${variant === "sidebar" ? "flex min-h-11 w-full items-center gap-2 rounded-lg border border-zinc-700 px-3 text-sm" : iconClass} ${activeCount ? "bg-indigo-500/20 text-indigo-300" : "text-zinc-300"}`}><SlidersHorizontal size={19} />{variant === "sidebar" && <span className="flex-1 text-left">篩選</span>}{activeCount > 0 && <span className={variant === "sidebar" ? "rounded-full bg-indigo-500 px-1.5 text-xs text-white" : "absolute right-0 top-0 rounded-full bg-indigo-500 px-1 text-[10px] text-white"}>{activeCount}</span>}</button>;
     return <>
         {variant === "mobile" ? <header className="sticky top-0 z-30 border-b border-zinc-800 bg-[#101115] lg:hidden">
             <nav aria-label="影片工具列" className="flex h-14 items-center min-[360px]:px-1.5 sm:px-3">
@@ -215,7 +222,7 @@ export default function Header({ libraries, activeLibraryId, onLibraryChange, ge
             {panel === "search" && <form onSubmit={(event) => { event.preventDefault(); apply(); }}>
                 <label className="text-sm text-zinc-400" htmlFor={`catalog-search-${variant}`}>片名、演員或番號</label>
                 <input id={`catalog-search-${variant}`} type="search" value={draft.search || ""} onChange={(event) => setDraft({ ...draft, search: event.target.value })} className="mt-2 h-12 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-base outline-none focus:border-indigo-500" />
-                <div className="mt-4 grid grid-cols-2 gap-3"><button type="button" onClick={() => { onFilterChange({ ...filter, search: undefined }); setPanel(null); }} className="min-h-11 rounded-lg border border-zinc-700">清除搜尋</button><button type="submit" className="min-h-11 rounded-lg bg-indigo-500 font-bold">搜尋</button></div>
+                <div className="mt-4 grid grid-cols-2 gap-3"><button type="button" onClick={() => { clearSearch(); setPanel(null); }} className="min-h-11 rounded-lg border border-zinc-700">清除搜尋</button><button type="submit" className="min-h-11 rounded-lg bg-indigo-500 font-bold">搜尋</button></div>
             </form>}
             {panel === "filter" && <FilterFields value={draft} genres={genres} levels={levels} onChange={setDraft} />}
             {panel === "sort" && <SortFields value={draft} onChange={setDraft} />}

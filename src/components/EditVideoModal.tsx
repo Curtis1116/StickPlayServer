@@ -27,7 +27,6 @@ export default function EditVideoModal({
     const [title, setTitle] = useState(video.title);
     const [level, setLevel] = useState(video.level);
     const [actorsStr, setActorsStr] = useState(video.actors.join(", "));
-    const [year, setYear] = useState(video.year);
     const [genresStr, setGenresStr] = useState(video.genres.filter((genre) => genre !== "無碼").join(", "));
     const [releaseDate, setReleaseDate] = useState(video.release_date);
     const [dateAdded, setDateAdded] = useState(video.date_added);
@@ -79,7 +78,7 @@ export default function EditVideoModal({
                 video.poster_path || null,
                 video.nfo_path,
                 criticRating,
-                year,
+                video.year,
                 genresList
             );
 
@@ -92,7 +91,6 @@ export default function EditVideoModal({
                 title,
                 rating,
                 criticrating: criticRating,
-                year,
                 actors: actorsList,
                 release_date: releaseDate,
                 date_added: dateAdded,
@@ -216,11 +214,6 @@ export default function EditVideoModal({
                                 <label className="w-16 sm:w-20 shrink-0 text-right text-[9px] sm:text-[10px] font-bold text-zinc-500 uppercase">掃描時間</label>
                                 <input type="text" aria-label="加入日期" value={dateAdded} onChange={(e) => setDateAdded(e.target.value)} className="min-w-0 flex-1 bg-zinc-800/50 border border-white/10 rounded-xl px-3 sm:px-4 py-2 sm:py-2.5 text-xs sm:text-sm text-white focus:outline-none" />
                             </div>
-                        </div>
-
-                        <div className="flex flex-row items-center gap-2 sm:w-1/2 sm:gap-3 sm:pr-2">
-                            <label className="w-16 sm:w-20 shrink-0 text-right text-[9px] sm:text-[10px] font-bold text-zinc-500 uppercase">年份</label>
-                            <input type="text" inputMode="numeric" aria-label="年份" value={year} onChange={(e) => setYear(e.target.value)} className="min-w-0 flex-1 bg-zinc-800/50 border border-white/10 rounded-xl px-3 sm:px-4 py-2 sm:py-2.5 text-xs sm:text-sm text-white focus:outline-none focus:border-indigo-500" />
                         </div>
 
                         <div className="flex flex-row items-start gap-2 sm:gap-3">

@@ -1,12 +1,13 @@
 use std::path::{Path, PathBuf};
 
+use serde::Serialize;
 use walkdir::WalkDir;
 
 use crate::database::Database;
-use crate::parser::{parse_folder_name, parse_nfo};
+use crate::parser::{create_nfo_from_folder, parse_folder_name, parse_nfo};
 
 /// 影片副檔名清單
-const VIDEO_EXTENSIONS: &[&str] = &["mp4", "mkv", "avi", "wmv", "mov", "ts", "flv", "rmvb"];
+const VIDEO_EXTENSIONS: &[&str] = crate::security::VIDEOS;
 
 /// 圖片副檔名清單
 const IMAGE_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "webp", "bmp"];
@@ -17,24 +18,126 @@ const POSTER_RATIO: f64 = 2.0 / 3.0;
 /// 長寬比距離低於此門檻視為「合適的海報」
 const RATIO_THRESHOLD: f64 = 0.25;
 
+const THUMBNAIL_WIDTH: u32 = 300;
+const THUMBNAIL_HEIGHT: u32 = 450;
+const THUMBNAIL_WEBP_QUALITY: f32 = 72.0;
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScanReport {
+    pub indexed: usize,
+    pub webp_thumbnails: usize,
+    pub missing_thumbnails: usize,
+    pub legacy_jpg_converted: usize,
+    pub legacy_jpg_failed: usize,
+    pub scan_errors: usize,
+}
+
+#[derive(Default)]
+struct ThumbnailMigration {
+    converted: usize,
+    failed: usize,
+}
+
+pub(crate) fn thumbnail_safe_id(id: &str) -> String {
+    id.replace("/", "_").replace("\\", "_").replace(":", "_")
+}
+
+/// 產生供媒體櫃使用的有損 WebP 縮圖。縮圖在掃描或裁切時預先建立，圖片請求只需讀檔。
+pub(crate) fn save_thumbnail(image: &image::DynamicImage, path: &Path) -> Result<(), String> {
+    let thumbnail = image.thumbnail(THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT).to_rgb8();
+    let encoded =
+        webp::Encoder::from_rgb(thumbnail.as_raw(), thumbnail.width(), thumbnail.height())
+            .encode(THUMBNAIL_WEBP_QUALITY);
+    std::fs::write(path, &*encoded).map_err(|error| error.to_string())?;
+
+    // WebP 寫入成功後才移除同一影片的舊 JPG 縮圖；媒體資料夾中的 poster.jpg
+    // 是原始海報來源，不在此清理範圍內。
+    let legacy_jpg = path.with_extension("jpg");
+    if legacy_jpg != path && legacy_jpg.exists() {
+        if let Err(error) = std::fs::remove_file(&legacy_jpg) {
+            crate::app_log!("[THUMB] 舊 JPG 縮圖清理失敗 ({:?}): {}", legacy_jpg, error);
+        }
+    }
+    Ok(())
+}
+
+/// 將舊版縮圖目錄中剩餘的 JPG 轉為 WebP。這也涵蓋原始海報已遺失、但舊縮圖仍
+/// 可用的影片；成功轉換後才刪除 JPG。
+fn migrate_legacy_thumbnails(db: &Database) -> ThumbnailMigration {
+    let mut report = ThumbnailMigration::default();
+    let thumbnail_dir = db.thumbnail_dir();
+    let Ok(entries) = std::fs::read_dir(&thumbnail_dir) else {
+        return report;
+    };
+
+    for entry in entries.flatten() {
+        let jpg_path = entry.path();
+        let is_jpg = jpg_path.is_file()
+            && jpg_path
+                .extension()
+                .and_then(|extension| extension.to_str())
+                .is_some_and(|extension| {
+                    extension.eq_ignore_ascii_case("jpg") || extension.eq_ignore_ascii_case("jpeg")
+                });
+        if !is_jpg {
+            continue;
+        }
+
+        let webp_path = jpg_path.with_extension("webp");
+        let result = if webp_path.is_file() && image::image_dimensions(&webp_path).is_ok() {
+            std::fs::remove_file(&jpg_path).map_err(|error| error.to_string())
+        } else {
+            image::open(&jpg_path)
+                .map_err(|error| error.to_string())
+                .and_then(|image| save_thumbnail(&image, &webp_path))
+                .and_then(|_| {
+                    if jpg_path.exists() {
+                        std::fs::remove_file(&jpg_path).map_err(|error| error.to_string())
+                    } else {
+                        Ok(())
+                    }
+                })
+        };
+
+        match result {
+            Ok(()) => report.converted += 1,
+            Err(error) => {
+                report.failed += 1;
+                crate::app_log!("[THUMB] 舊 JPG 縮圖轉換失敗 ({:?}): {}", jpg_path, error);
+            }
+        }
+    }
+
+    report
+}
+
 /// 掃描媒體庫路徑，將結果寫入 SQLite
 /// 掃描期間會設定 `is_scanning` 旗標，防止 `switch_database` 在中途插隊
-pub fn scan_library_paths(db: &Database, paths: &[String]) -> Result<usize, String> {
+pub fn scan_library_paths(db: &Database, paths: &[String]) -> Result<ScanReport, String> {
     db.set_scanning(true);
     let result = scan_library_paths_inner(db, paths);
     db.set_scanning(false);
     result
 }
 
-fn scan_library_paths_inner(db: &Database, paths: &[String]) -> Result<usize, String> {
+fn scan_library_paths_inner(db: &Database, paths: &[String]) -> Result<ScanReport, String> {
     if paths.is_empty() {
         let deleted = db.prune_missing_videos(paths).map_err(|e| e.to_string())?;
         crate::app_log!("[SCAN] 掃描路徑為空，已清除 {} 筆索引。", deleted);
-        return Ok(0);
+        return Ok(ScanReport {
+            indexed: 0,
+            webp_thumbnails: 0,
+            missing_thumbnails: 0,
+            legacy_jpg_converted: 0,
+            legacy_jpg_failed: 0,
+            scan_errors: 0,
+        });
     }
     crate::app_log!("[SCAN] 開始大批掃描, 路徑集: {:?}", paths);
 
     let mut count = 0;
+    let mut scan_errors = 0;
 
     for root_path in paths {
         let root = Path::new(root_path);
@@ -51,8 +154,13 @@ fn scan_library_paths_inner(db: &Database, paths: &[String]) -> Result<usize, St
                 continue;
             }
 
-            if scan_single_folder(db, entry.path(), false).is_ok() {
-                count += 1;
+            match scan_single_folder(db, entry.path(), false) {
+                Ok(()) => count += 1,
+                Err(error) if error == "資料夾內無影片檔" => {}
+                Err(error) => {
+                    scan_errors += 1;
+                    crate::app_log!("[SCAN] 掃描失敗 ({:?}): {}", entry.path(), error);
+                }
             }
         }
     }
@@ -67,7 +175,41 @@ fn scan_library_paths_inner(db: &Database, paths: &[String]) -> Result<usize, St
         _ => {}
     }
 
-    Ok(count)
+    let migration = migrate_legacy_thumbnails(db);
+    let videos = db
+        .query_videos(&crate::models::VideoFilter::default())
+        .map_err(|error| error.to_string())?;
+    let expected_thumbnails = videos
+        .iter()
+        .filter(|video| video.poster_path.is_some())
+        .collect::<Vec<_>>();
+    let webp_thumbnails = expected_thumbnails
+        .iter()
+        .filter(|video| {
+            db.resolve_thumbnail(&thumbnail_safe_id(&video.id))
+                .is_some()
+        })
+        .count();
+    let missing_thumbnails = expected_thumbnails.len().saturating_sub(webp_thumbnails);
+
+    crate::app_log!(
+        "[SCAN] 完成：索引 {}、WebP {}、缺少縮圖 {}、舊 JPG 轉換 {}、轉換失敗 {}、掃描錯誤 {}",
+        count,
+        webp_thumbnails,
+        missing_thumbnails,
+        migration.converted,
+        migration.failed,
+        scan_errors
+    );
+
+    Ok(ScanReport {
+        indexed: count,
+        webp_thumbnails,
+        missing_thumbnails,
+        legacy_jpg_converted: migration.converted,
+        legacy_jpg_failed: migration.failed,
+        scan_errors,
+    })
 }
 
 /// 掃描單一資料夾，更新索引
@@ -87,8 +229,32 @@ pub fn scan_single_folder(
 
     let folder_meta = parse_folder_name(&folder_name);
 
-    // 僅尋找 .nfo 檔案
-    let nfo_path = find_file_by_ext(dir_path, "nfo");
+    // Create basic metadata only when no NFO is present.
+    let mut nfo_path = find_file_by_ext(dir_path, "nfo");
+    if nfo_path.is_none() {
+        if let Some(meta) = &folder_meta {
+            let generated_path = dir_path.join(format!("{}.nfo", meta.id));
+            let date_added = chrono::Local::now().format("%Y-%m-%d").to_string();
+            let create_result = crate::security::media_path(&generated_path)
+                .and_then(|_| create_nfo_from_folder(&generated_path, meta, &date_added));
+            match create_result {
+                Ok(()) => {
+                    crate::app_log!("[NFO] 已自動建立: {}", generated_path.display());
+                    nfo_path = Some(generated_path.to_string_lossy().to_string());
+                }
+                Err(error) => crate::app_log!(
+                    "[NFO] 自動建立失敗，仍繼續產生索引與縮圖 ({:?}): {}",
+                    generated_path,
+                    error
+                ),
+            }
+        } else {
+            crate::app_log!(
+                "[NFO] 無法從資料夾名稱解析中繼資料，略過自動建立: {}",
+                dir_path.display()
+            );
+        }
+    }
 
     // 解析中繼資料
     let nfo_data = nfo_path
@@ -123,16 +289,15 @@ pub fn scan_single_folder(
     // 產生縮圖 (隔離路徑修復)
     if let Some(ref p) = poster_path {
         let thumbnail_dir = db.thumbnail_dir();
-        let safe_id = id.replace("/", "_").replace("\\", "_").replace(":", "_");
-        let thumb_path = thumbnail_dir.join(format!("{}.jpg", safe_id));
+        let safe_id = thumbnail_safe_id(&id);
+        let thumb_path = thumbnail_dir.join(format!("{}.webp", safe_id));
 
         if !thumb_path.exists() {
             crate::app_log!("[THUMB] 正在為 [{}] 產生縮圖...", id);
             match std::fs::read(p) {
                 Ok(bytes) => match image::load_from_memory(&bytes) {
                     Ok(img) => {
-                        let thumb = img.thumbnail(300, 450);
-                        if let Err(e) = thumb.save(&thumb_path) {
+                        if let Err(e) = save_thumbnail(&img, &thumb_path) {
                             crate::app_log!(
                                 "[THUMB] [{}] 縮圖儲存失敗 ({:?}): {}",
                                 id,
@@ -148,6 +313,14 @@ pub fn scan_single_folder(
                 Err(e) => {
                     crate::app_log!("[THUMB] [{}] 讀取海報圖失敗 ({:?}): {}", id, p, e);
                 }
+            }
+        }
+
+        // 已有 WebP 的媒體也順手清掉同目錄內的舊 JPG 縮圖。
+        if thumb_path.exists() {
+            let legacy_jpg = thumb_path.with_extension("jpg");
+            if legacy_jpg.exists() {
+                let _ = std::fs::remove_file(legacy_jpg);
             }
         }
     }
@@ -332,4 +505,52 @@ fn find_best_poster(dir: &Path, video_path: &str) -> Option<String> {
 
     // 4. 最終 fallback：直接回傳第一張圖片
     images.get(0).map(|p| p.to_string_lossy().to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{migrate_legacy_thumbnails, save_thumbnail};
+    use crate::database::Database;
+
+    #[test]
+    fn thumbnail_is_webp_and_replaces_legacy_jpg() {
+        let dir = tempfile::tempdir().unwrap();
+        let webp_path = dir.path().join("movie.webp");
+        let jpg_path = dir.path().join("movie.jpg");
+        std::fs::write(&jpg_path, b"legacy thumbnail").unwrap();
+
+        let source = image::DynamicImage::new_rgb8(600, 900);
+        save_thumbnail(&source, &webp_path).unwrap();
+
+        assert!(!jpg_path.exists());
+        assert_eq!(
+            image::ImageReader::open(&webp_path)
+                .unwrap()
+                .with_guessed_format()
+                .unwrap()
+                .format(),
+            Some(image::ImageFormat::WebP)
+        );
+        assert_eq!(image::image_dimensions(webp_path).unwrap(), (300, 450));
+    }
+
+    #[test]
+    fn library_refresh_migrates_remaining_jpg_thumbnails() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = Database::open(dir.path().to_path_buf(), "stickplay").unwrap();
+        let jpg_path = db.thumbnail_dir().join("legacy-movie.jpg");
+        image::DynamicImage::new_rgb8(300, 450)
+            .save(&jpg_path)
+            .unwrap();
+
+        let report = migrate_legacy_thumbnails(&db);
+
+        assert_eq!(report.converted, 1);
+        assert_eq!(report.failed, 0);
+        assert!(!jpg_path.exists());
+        assert_eq!(
+            image::image_dimensions(jpg_path.with_extension("webp")).unwrap(),
+            (300, 450)
+        );
+    }
 }

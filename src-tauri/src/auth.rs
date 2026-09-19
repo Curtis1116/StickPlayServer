@@ -306,10 +306,14 @@ pub async fn guard(
             response.headers_mut().insert(header::SET_COOKIE, cookie);
         }
     }
-    response.headers_mut().insert(
-        header::CACHE_CONTROL,
-        HeaderValue::from_static("private, no-store"),
-    );
+    // 個別端點可提供更合適的私有快取策略。例如圖片允許瀏覽器保存內容並以
+    // ETag／Last-Modified 重新驗證；其餘含個人資料的 API 預設仍禁止保存。
+    if !response.headers().contains_key(header::CACHE_CONTROL) {
+        response.headers_mut().insert(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("private, no-store"),
+        );
+    }
     response.headers_mut().insert(
         header::REFERRER_POLICY,
         HeaderValue::from_static("no-referrer"),

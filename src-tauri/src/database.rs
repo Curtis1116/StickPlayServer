@@ -140,39 +140,26 @@ impl Database {
         dir_val
     }
 
-    /// 找出某個影片 id 實際可用的縮圖路徑：優先使用「目前資料庫專屬」的縮圖目錄，
-    /// 若找不到則回退查詢舊版共用的 `thumbnails/` 資料夾。
+    /// 找出某個影片 id 實際可用的 WebP 縮圖路徑：優先使用「目前資料庫專屬」的縮圖
+    /// 目錄，若找不到則回退查詢舊版共用的 `thumbnails/` 資料夾。
     ///
     /// 背景：在引入「每個媒體庫獨立縮圖目錄」之前，所有媒體庫共用同一個 thumbnails/
     /// 資料夾。既有安裝升級後，之前已建立索引、尚未被重新掃描的影片，其縮圖仍留在
-    /// 舊的共用資料夾內；若不回退查詢，會導致這些縮圖全部「憑空消失」，改為顯示
-    /// 未經壓縮的原始海報圖。
+    /// 舊的共用資料夾內；若不回退查詢，會改為顯示未經壓縮的原始海報圖。
     pub fn resolve_thumbnail(&self, safe_id: &str) -> Option<PathBuf> {
-        let filename = format!("{}.jpg", safe_id);
-
-        let current = self.thumbnail_dir().join(&filename);
-        if current.is_file()
-            && current.canonicalize().ok().is_some_and(|p| {
-                self.thumbnail_dir()
+        for root in [self.thumbnail_dir(), self.app_data_dir.join("thumbnails")] {
+            let Some(canonical_root) = root.canonicalize().ok() else {
+                continue;
+            };
+            let candidate = root.join(format!("{}.webp", safe_id));
+            if candidate.is_file()
+                && candidate
                     .canonicalize()
                     .ok()
-                    .is_some_and(|root| p.starts_with(root))
-            })
-        {
-            return Some(current);
-        }
-
-        let legacy = self.app_data_dir.join("thumbnails").join(&filename);
-        if legacy.is_file()
-            && legacy.canonicalize().ok().is_some_and(|p| {
-                self.app_data_dir
-                    .join("thumbnails")
-                    .canonicalize()
-                    .ok()
-                    .is_some_and(|root| p.starts_with(root))
-            })
-        {
-            return Some(legacy);
+                    .is_some_and(|path| path.starts_with(&canonical_root))
+            {
+                return Some(candidate);
+            }
         }
 
         None
